@@ -209,6 +209,98 @@ void expect_invalid_resource(const fs::path& base, const std::string& name,
     expect(activations == 0, name + " cannot activate its plugin");
 }
 
+/* A feature with its required source ROM plus an optional one. An empty
+ * `optional_path` leaves the optional resource unselected. */
+void write_optional_catalog(const fs::path& root, const fs::path& required_path,
+                            const fs::path& optional_path) {
+    const fs::path package = root / "packages" / kPackageId / "1.0.0";
+    fs::create_directories(package);
+    std::ofstream manifest(package / "manifest.toml", std::ios::trunc);
+    manifest
+        << "format_version = 1\n"
+        << "id = \"" << kPackageId << "\"\n"
+        << "version = \"1.0.0\"\n"
+        << "name = \"Optional External ROM Test\"\n"
+        << "resolver = \"declarative\"\n\n"
+        << "[[target]]\n"
+        << "game_id = \"test-game\"\n"
+        << "rom_crc32 = \"00000000\"\n\n"
+        << "[[feature]]\n"
+        << "id = \"" << kFeatureId << "\"\n"
+        << "name = \"Synthetic fighter\"\n"
+        << "default_enabled = false\n\n";
+    for (const char* id : {"source-rom", "optional-rom"}) {
+        manifest
+            << "[[external_rom]]\n"
+            << "feature = \"" << kFeatureId << "\"\n"
+            << "id = \"" << id << "\"\n"
+            << "label = \"Synthetic " << id << "\"\n"
+            << "format = \"raw\"\n"
+            << "identity = \"Synthetic image\"\n"
+            << "size = " << kRomSize << "\n"
+            << "normalized_sha1 = \"" << kSha1 << "\"\n";
+        if (std::string(id) == "optional-rom") manifest << "required = false\n";
+        manifest << "\n";
+    }
+    manifest
+        << "[[plugin]]\n"
+        << "feature = \"" << kFeatureId << "\"\n"
+        << "id = \"" << kPluginId << "\"\n";
+    expect(static_cast<bool>(manifest), "write optional manifest");
+
+    std::ofstream state(root / "state.toml", std::ios::trunc);
+    state
+        << "format_version = 1\n\n"
+        << "[[package]]\n"
+        << "id = \"" << kPackageId << "\"\n"
+        << "version = \"1.0.0\"\n\n"
+        << "[[feature]]\n"
+        << "package_id = \"" << kPackageId << "\"\n"
+        << "id = \"" << kFeatureId << "\"\n"
+        << "enabled = true\n\n"
+        << "[[resource]]\n"
+        << "package_id = \"" << kPackageId << "\"\n"
+        << "id = \"source-rom\"\n"
+        << "path = " << toml_string(required_path.string()) << "\n";
+    if (!optional_path.empty()) {
+        state
+            << "\n[[resource]]\n"
+            << "package_id = \"" << kPackageId << "\"\n"
+            << "id = \"optional-rom\"\n"
+            << "path = " << toml_string(optional_path.string()) << "\n";
+    }
+    expect(static_cast<bool>(state), "write optional state");
+}
+
+void expect_optional_case(const fs::path& base, const std::string& name,
+                          const fs::path& required_path,
+                          const fs::path& optional_path,
+                          bool expect_activation) {
+    const fs::path root = base / name;
+    std::string error;
+    write_optional_catalog(root, required_path, optional_path);
+    activations = 0;
+    activation_saw_committed_path = false;
+    expected_activation_path = required_path;
+    expect(initialize(root, error), name + " initializes: " + error);
+    error.clear();
+    expect(NESRecomp::mod_runtime_commit({}, &error), name + " commits: " + error);
+    NESRecomp::mod_runtime_activate_plugins();
+    expect(activations == (expect_activation ? 1 : 0),
+           name + (expect_activation ? " activates its plugin"
+                                     : " cannot activate its plugin"));
+    if (!expect_activation) return;
+    const char* optional = nes_mod_external_rom_path(
+        kPackageId, kFeatureId, "optional-rom");
+    if (optional_path.empty()) {
+        expect(optional == nullptr,
+               name + " exposes no path for an unselected optional ROM");
+    } else {
+        expect(optional && fs::path(optional) == optional_path,
+               name + " exposes its verified optional ROM path");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -285,6 +377,10 @@ int main() {
                             small_bytes.size(), kSmallSha1);
     expect_invalid_resource(base, "missing", missing);
     expect_invalid_resource(base, "wrong", wrong_path);
+
+    expect_optional_case(base, "optional-unselected", z64, fs::path(), true);
+    expect_optional_case(base, "optional-verified", z64, z64, true);
+    expect_optional_case(base, "optional-wrong", z64, wrong_path, false);
 
     {
         const fs::path race = base / "race.z64";

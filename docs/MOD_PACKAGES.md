@@ -77,6 +77,12 @@ SHA-1 is used as a ROM-revision identity, not as a security primitive. The
 selected path is stored in `mods/state.toml`; the ROM is never copied into or
 packaged with the mod.
 
+A resource declared with `required = false` is optional: leaving it
+unselected never blocks enabling or PLAY, and the plugin simply receives
+`NULL` for it. Once a path is selected, it is verified exactly like a required
+resource, and the launcher offers a Clear button to return to the unselected
+state.
+
 Required owner ROMs are fail-closed at every activation boundary. A missing,
 changed, or unsupported file prevents both package-level and feature-level
 enable operations, invalidates a hand-edited or legacy enabled state, and is

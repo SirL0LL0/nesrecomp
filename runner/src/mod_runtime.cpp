@@ -92,6 +92,9 @@ struct ExternalRom {
     std::string identity;
     std::vector<std::string> normalized_sha1s;
     uint64_t size = 0;
+    /* An optional resource may stay unselected; once a path is selected it
+     * is verified exactly like a required one. */
+    bool required = true;
 };
 
 struct Package {
@@ -197,6 +200,9 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
                                     const Package& package,
                                     const ExternalRom& resource,
                                     bool force);
+
+bool external_rom_selected(Runtime& runtime, const Package& package,
+                           const ExternalRom& resource);
 
 bool feature_resources_valid(Runtime& runtime, const Package& package,
                              const Feature& feature, bool force,
@@ -649,6 +655,9 @@ bool read_manifest(const fs::path& path, Package& out, std::string* error) {
                 else if (key == "size") {
                     parsed = parse_int(value, int_value) && int_value > 0;
                     if (parsed) external_rom->size = (uint64_t)int_value;
+                } else if (key == "required") {
+                    parsed = parse_bool(value, bool_value);
+                    if (parsed) external_rom->required = bool_value;
                 } else known = false;
                 break;
         }
@@ -930,6 +939,11 @@ bool snapshot_committed_external_rom_paths(Runtime& runtime,
         const PackageSelection& selection = package_selection(runtime, *package);
         for (const ExternalRom& resource : package->external_roms) {
             if (resource.feature_id != feature->id) continue;
+            /* An unselected optional resource simply has no committed path;
+             * the plugin sees NULL and runs without it. */
+            if (!resource.required &&
+                !external_rom_selected(runtime, *package, resource))
+                continue;
             const ResourceVerdict verdict =
                 verify_external_rom(runtime, *package, resource, true);
             if (!verdict.verified) {
@@ -1214,6 +1228,13 @@ std::string sha1_hex(const std::vector<uint8_t>& input) {
     return out;
 }
 
+bool external_rom_selected(Runtime& runtime, const Package& package,
+                           const ExternalRom& resource) {
+    const PackageSelection& selection = package_selection(runtime, package);
+    const auto selected = selection.resources.find(resource.id);
+    return selected != selection.resources.end() && !selected->second.empty();
+}
+
 ResourceVerdict verify_external_rom(Runtime& runtime,
                                     const Package& package,
                                     const ExternalRom& resource,
@@ -1224,7 +1245,9 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
         ? std::string() : selected->second;
     ResourceVerdict result;
     if (path.empty()) {
-        result.status = "Not selected — required before enabling";
+        result.status = resource.required
+            ? "Not selected — required before enabling"
+            : "Not selected — optional";
         return result;
     }
     std::error_code ec;
@@ -1352,6 +1375,9 @@ bool feature_resources_valid(Runtime& runtime, const Package& package,
     bool valid = true;
     for (const ExternalRom& resource : package.external_roms) {
         if (resource.feature_id != feature.id) continue;
+        if (!resource.required && !external_rom_selected(runtime, package,
+                                                         resource))
+            continue;
         const ResourceVerdict verdict =
             verify_external_rom(runtime, package, resource, force);
         if (verdict.verified) continue;
@@ -2264,7 +2290,7 @@ int provider_feature_resource_get(
             copy_text(out->file_patterns, "*.*");
             copy_text(out->file_description, "ROM images");
         }
-        out->required = 1;
+        out->required = resource.required ? 1 : 0;
         out->verified = verdict.verified ? 1 : 0;
         return 1;
     }
@@ -2289,6 +2315,12 @@ int provider_feature_resource_set_path(
      * cheap (owner ROMs are only verified on interaction/commit) and removes
      * stale verdicts for previous selections of this resource. */
     state().resource_cache.clear();
+    if (!*path && !resource->required) {
+        /* Clearing an optional selection is always a valid state. */
+        refresh_validation();
+        state().error.clear();
+        return 1;
+    }
     const ResourceVerdict verdict =
         verify_external_rom(state(), *package, *resource, true);
     refresh_validation();

@@ -47,6 +47,18 @@ void nes_mod_audio_stop_loop(NESModAudioClip clip);
  * this to discard host delivery state instead of replaying a stale call. */
 void nes_mod_audio_stop_all(void);
 
+/* A live stream, for mods that synthesize audio as it plays (for example an
+ * emulated sound chip driven by gameplay). `render` fills `frame_count` mono
+ * samples at NES_MOD_AUDIO_SAMPLE_RATE, which the mixer adds to the frame;
+ * `reset` (optional) silences the source and runs from nes_mod_audio_stop_all.
+ * There is one stream slot; setting a new stream replaces the old one, and
+ * passing NULL removes it. */
+typedef void (*NESModAudioStreamRender)(void *user, int16_t *samples,
+                                        int frame_count);
+typedef void (*NESModAudioStreamReset)(void *user);
+void nes_mod_audio_set_stream(NESModAudioStreamRender render,
+                              NESModAudioStreamReset reset, void *user);
+
 /* Runner-internal producer step: saturating-add active overlays into `dst`. */
 void nes_mod_audio_mix(int16_t *dst, int frame_count);
 
