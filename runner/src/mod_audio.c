@@ -22,6 +22,9 @@ typedef struct ModAudioVoice {
 static ModAudioClipSlot s_clips[MOD_AUDIO_MAX_CLIPS];
 static ModAudioVoice s_voices[MOD_AUDIO_MAX_VOICES];
 static unsigned s_replace_cursor;
+static NESModAudioStreamRender s_stream_render;
+static NESModAudioStreamReset s_stream_reset;
+static void *s_stream_user;
 
 static ModAudioClipSlot *clip_slot(NESModAudioClip clip)
 {
@@ -133,12 +136,40 @@ void nes_mod_audio_stop_all(void)
 {
     memset(s_voices, 0, sizeof(s_voices));
     s_replace_cursor = 0;
+    if (s_stream_reset) s_stream_reset(s_stream_user);
+}
+
+void nes_mod_audio_set_stream(NESModAudioStreamRender render,
+                              NESModAudioStreamReset reset, void *user)
+{
+    s_stream_render = render;
+    s_stream_reset = render ? reset : NULL;
+    s_stream_user = render ? user : NULL;
+}
+
+static void mix_stream(int16_t *dst, int frame_count)
+{
+    int16_t chunk[1024];
+    while (frame_count > 0) {
+        const int n = frame_count < (int)(sizeof(chunk) / sizeof(chunk[0]))
+            ? frame_count : (int)(sizeof(chunk) / sizeof(chunk[0]));
+        s_stream_render(s_stream_user, chunk, n);
+        for (int i = 0; i < n; ++i) {
+            int mixed = (int)dst[i] + chunk[i];
+            if (mixed > 32767) mixed = 32767;
+            if (mixed < -32768) mixed = -32768;
+            dst[i] = (int16_t)mixed;
+        }
+        dst += n;
+        frame_count -= n;
+    }
 }
 
 void nes_mod_audio_mix(int16_t *dst, int frame_count)
 {
     int i, v;
     if (!dst || frame_count <= 0) return;
+    if (s_stream_render) mix_stream(dst, frame_count);
 
     for (i = 0; i < frame_count; ++i) {
         int mixed = dst[i];
