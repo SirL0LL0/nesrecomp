@@ -26,6 +26,12 @@
 
 static void fallback_telemetry_init(void);
 
+// NES PPUMASK ($2001) uses a different bit layout than the runner's
+// internal g_ppumask variable. Set g_ppumask_translate to 1 to enable
+// translation in the PPUMASK write handler.
+extern uint8_t g_ppumask_translate;
+uint8_t g_ppumask_translate = 0;
+
 /* ---- APU register-write trace ring (always-on, env-gated) -------------------
  * NESRECOMP_APU_TRACE=<path>  ->  capture every $4000-$401F APU register write as
  * (cpu_cycle, addr, val) into a bounded ring, dumped to CSV at exit. Used to diff
@@ -572,6 +578,13 @@ static uint32_t s_frame_budget = OPS_PER_FRAME;  /* current frame's integer cycl
 
 /* Compute the NEXT frame's integer CPU-cycle budget from the exact dot count,
  * carrying the sub-cycle remainder so the running mean is dot-accurate. */
+static inline uint8_t nes_ppumask_to_runner(uint8_t val) {
+     return ((val & 0x01) << 1)  /* NES bit0 (BG left) → runner bit1 (BG clip) */
+          | ((val & 0x02) << 1)  /* NES bit1 (Sprite left) → runner bit2 (Sprite clip) */
+          | ((val & 0x10) >> 1)  /* NES bit4 (BG enable) → runner bit3 */
+          | ((val & 0x20) >> 1); /* NES bit5 (Sprite enable) → runner bit4 */
+ }
++
 static uint32_t next_frame_budget(void) {
     if (s_dotclock <= 0) return OPS_PER_FRAME;
     int dots = FRAME_DOTS_EVEN - ((s_odd_frame && (g_ppumask & 0x18)) ? 1 : 0);
@@ -1700,7 +1713,13 @@ void ppu_write_reg(uint16_t reg, uint8_t val) {
                 s_visible_frame_frame = g_frame_count;
             }
             break;
-        case 0x2001: g_ppumask = val; break;
+        case 0x2001:
+            if (g_ppumask_translate) {
+                g_ppumask = nes_ppumask_to_runner(val);
+            } else {
+                g_ppumask = val;
+            }
+            break;
         case 0x2003: g_oamaddr = val; break;
         case 0x2004:
             /* Direct OAM writes carry no draw context: plain X in the sidecar. */
