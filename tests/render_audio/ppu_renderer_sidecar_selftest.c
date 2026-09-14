@@ -13,6 +13,7 @@ uint8_t g_ppu_oam[0x100];
 uint8_t g_ppu_pal[0x20];
 uint8_t g_ppu_nt[0x1000];
 int g_chr_is_rom;
+int g_dot_ppu_on;
 
 uint8_t g_ppuctrl;
 uint8_t g_ppumask;

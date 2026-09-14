@@ -171,6 +171,10 @@ typedef enum {
     NESTED_NMI_RUN_HANDLER     = 1,
 } NestedNmiPolicy;
 extern int g_nested_nmi_policy;
+/* Optional additional RAM flag for the legacy shim. Disabled by default (-1).
+ * A game may set this in game_on_init(), e.g. Tetris uses 0x33. */
+extern int g_nested_nmi_extra_flag_addr;
+void nes_resolve_nested_nmi_spin_flags(void);
 
 /* Implemented by debug_server.c. Sets the pause flag so the next
  * debug_server_wait_if_paused blocks in the TCP loop. Safe to call from
@@ -409,6 +413,9 @@ void     nes_fring_init_dump(void);               /* arm NESRECOMP_FRING_DUMP */
 /* PPU registers */
 extern uint8_t g_ppuctrl;
 extern uint8_t g_ppumask;
+/* Compatibility opt-in from PR 21. The runner already uses the native NES
+ * layout, so both settings preserve every bit written to $2001. */
+extern uint8_t g_ppumask_translate;
 extern uint8_t g_ppustatus;
 extern uint8_t g_ppuscroll_x;
 extern uint8_t g_ppuscroll_y;
@@ -496,6 +503,12 @@ extern uint64_t g_frame_count;
  * the old g_frame_count*OPS_PER_FRAME + s_ops_count estimate, which inherited
  * the fixed-frame-length (29781) error. See DIFFERENTIAL-COSIM-PROPOSAL Rung 1. */
 extern uint64_t g_nes_cycles;
+
+/* Guest CPU-cycle stamp of the last VBlank frame boundary (pre-handler).
+ * Delta between consecutive boundary stamps = the true, essentially-constant
+ * frame length — the value audio pacing should use to size its per-frame
+ * sample push. */
+extern uint64_t g_frame_boundary_cyc;
 
 /* Save the current native framebuffer as a PNG */
 void runner_screenshot(const char *path);

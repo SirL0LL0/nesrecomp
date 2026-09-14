@@ -6,6 +6,37 @@ import { describe, it, expect } from "vitest";
 import { RomBuilder } from "./helpers/rom-builder.js";
 import { recompile } from "./helpers/recompile.js";
 
+describe("RTS dispatch instruction boundaries", () => {
+  it("retains a four-PHA dispatch's local continuation", () => {
+    const rom = new RomBuilder()
+      .org(0xc000)
+      .emit([0xa9, 0xc0, 0x48, 0xa9, 0x0e, 0x48,
+             0xb9, 0x11, 0xc1, 0x48, 0xb9, 0x10, 0xc1, 0x48, 0x60])
+      .emit([0xe6, 0x11, 0x60])
+      .org(0xc020).emit([0xe6, 0x10, 0x60])
+      .org(0xc110).emit([0x1f, 0xc0])
+      .vectors(0xc000, 0xc020, 0xc020)
+      .writeTemp("four_pha_continuation.nes");
+    const result = recompile(rom, '[game]\noutput_prefix = "four_pha"\n');
+    expect(result.fullC).toContain("goto label_C00F;");
+    expect(result.fullC).toContain("/* $C00F: E6 */");
+    expect(result.fullC).toContain("g_cpu.S=(uint8_t)(_s4+4)");
+  });
+
+  it("does not treat INC $48's operand as a PHA before RTS", () => {
+    const rom = new RomBuilder()
+      .org(0xc000).emit([0xe6, 0x48, 0x60])
+      .vectors(0xc000, 0xc000, 0xc000)
+      .writeTemp("operand_48_rts.nes");
+    const result = recompile(rom);
+    expect(result.fullC).toContain("/* $C002: 60 */");
+    // The finder may also emit a valid alternate entry starting at C001.
+    // Check the original INC/RTS instruction stream, not that overlap.
+    const body = result.fullC.split("void func_C000(void) {")[1].split("\nvoid ")[0];
+    expect(body).not.toContain("uint8_t _lo=g_ram[0x100+g_cpu.S]");
+  });
+});
+
 describe("extra function seeds", () => {
   it("discovers functions listed in game.toml [functions]", () => {
     // $C100 is not reachable from RESET — only discoverable via extra seed

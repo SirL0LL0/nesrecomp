@@ -19,6 +19,8 @@ char g_exe_dir[260] = ".";
 int g_dot_ppu_on = 0;
 int g_render_width = 256;
 int g_ws_oam_sidecar = 0;
+int g_ws_obj_delta_min = -128;
+int g_ws_obj_delta_max = 127;
 int16_t g_oam_x16[64];
 int16_t g_ws_shadow_x16[64];
 int16_t g_ws_obj_true_rel = 0;
@@ -109,9 +111,37 @@ static void test_unprojected_boundary_skips_resume_tick(void) {
     assert(g_nes_cycles == 205);
 }
 
+static void test_ppumask_preserves_native_bits(void) {
+    for (int enabled = 0; enabled <= 1; enabled++) {
+        g_ppumask_translate = (uint8_t)enabled;
+        for (int mask = 0; mask <= 255; mask++) {
+            ppu_write_reg(0x2001, (uint8_t)mask);
+            assert(g_ppumask == (uint8_t)mask);
+        }
+    }
+    g_ppumask_translate = 0;
+}
+
+static void test_nested_nmi_flag_is_opt_in(void) {
+    const int addresses[] = {-1, 0x33, 0x800};
+    for (unsigned i = 0; i < sizeof(addresses) / sizeof(addresses[0]); i++) {
+        memset(g_ram, 0x5A, sizeof(g_ram));
+        g_nested_nmi_extra_flag_addr = addresses[i];
+        nes_resolve_nested_nmi_spin_flags();
+        for (int addr = 0; addr < 0x800; addr++) {
+            int written = addr == 0x1A || addr == 0x20 ||
+                (addresses[i] == 0x33 && addr == 0x33);
+            assert(g_ram[addr] == (written ? 1 : 0x5A));
+        }
+    }
+    g_nested_nmi_extra_flag_addr = -1;
+}
+
 int main(void) {
     test_projected_boundary_skips_resume_tick();
     test_unprojected_boundary_skips_resume_tick();
+    test_ppumask_preserves_native_bits();
+    test_nested_nmi_flag_is_opt_in();
     puts("runtime boundary self-test passed");
     return 0;
 }
