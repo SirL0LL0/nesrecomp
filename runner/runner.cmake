@@ -31,6 +31,7 @@ set(NESRECOMP_RUNNER_SOURCES
     # producer frame as the APU, before launcher volume and the audio bridge.
     ${NESRECOMP_RUNNER_ROOT}/src/mod_audio.c
     ${NESRECOMP_RUNNER_ROOT}/src/mapper.c
+    ${NESRECOMP_RUNNER_ROOT}/src/mmc5.c
     ${NESRECOMP_RUNNER_ROOT}/src/logger.c
     ${NESRECOMP_RUNNER_ROOT}/src/input_script.c
     ${NESRECOMP_RUNNER_ROOT}/src/savestate.c

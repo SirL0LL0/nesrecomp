@@ -118,6 +118,9 @@ int     g_spr0_split_write_scanline = -1;
 static inline int scanline_from_cycles(uint32_t cpu_cycles) {
     return (int)((cpu_cycles * 3u) / 341u);
 }
+/* Scanline index since the frame boundary (vblank start): 0-19 vblank, 20
+ * pre-render, 21-260 = visible lines 0-239. Used by MMC5's "in frame" flag. */
+int runtime_frame_scanline(void);
 static int     g_ppuaddr_latch = 0;
 /* NOTE: g_scroll_latch removed — real NES shares a single write toggle
  * ("w" register) between $2005 and $2006.  g_ppuaddr_latch is that toggle. */
@@ -1024,6 +1027,10 @@ void nes_cpu_instruction_boundary(uint16_t cpu_pc, int cycles) {
     maybe_trigger_vblank(cycles);
 }
 
+int runtime_frame_scanline(void) {
+    return scanline_from_cycles(s_ops_count);
+}
+
 void nes_instruction_boundary(uint16_t gen_pc, int cycles) {
     uint16_t cpu_pc = gen_pc;
     /* Only the 8KB-window mappers compile physical bank layouts whose
@@ -1032,7 +1039,7 @@ void nes_instruction_boundary(uint16_t gen_pc, int cycles) {
      * folding their $C000-$FFFF half through g_code_window_base corrupts the
      * interrupted continuation recorded at a frame boundary. */
     int mapper = mapper_get_type();
-    if ((mapper == 4 || mapper == 40) && gen_pc >= 0x8000)
+    if ((mapper == 4 || mapper == 5 || mapper == 40) && gen_pc >= 0x8000)
         cpu_pc = (uint16_t)(g_code_window_base | (gen_pc & 0x1FFF));
     nes_cpu_instruction_boundary(cpu_pc, cycles);
 }
@@ -1475,6 +1482,10 @@ static uint8_t nes_read_inner(uint16_t addr) {
         }
         return s_open_bus;   /* write-only APU regs ($4000-$4013,$4015w) read open bus */
     }
+    if (addr >= 0x5000 && mapper_get_type() == 5) {
+        uint8_t v;
+        return mapper_read_ext(addr, &v) ? v : s_open_bus;
+    }
     if (addr >= 0x6000 && addr <= 0x7FFF) {
         if (mapper_get_type() == 40) return mapper_peek_prg(addr);
         return g_sram[addr - 0x6000];
@@ -1732,6 +1743,7 @@ void nes_write(uint16_t addr, uint8_t val) {
         apu_write(addr, val);
         return;
     }
+    if (addr >= 0x5000 && mapper_write_ext(addr, val)) return;
     if (addr >= 0x6000 && addr <= 0x7FFF) {
         /* Mapper 40 maps PRG ROM into this window; writes are not SRAM. */
         if (mapper_get_type() == 40) return;
@@ -1812,6 +1824,7 @@ void ppu_write_reg(uint16_t reg, uint8_t val) {
         g_spr0_reads_ctr_legacy = 0;
     switch (reg) {
         case 0x2000:
+            if ((g_ppuctrl ^ val) & 0x20) { g_ppuctrl = val; mapper_ppuctrl_changed(); }
             g_ppuctrl = val;
             /* $2000 bits 0-1 → t bits 10-11 (nametable select) */
             s_ppu_t = (s_ppu_t & 0xF3FF) | ((uint16_t)(val & 3) << 10);

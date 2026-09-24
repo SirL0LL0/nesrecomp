@@ -202,8 +202,15 @@ static void dot_render_scanline(int sy, uint32_t *target, int snapshot) {
 
             int bit = 7 - px_col;
             int chr_off = chr_base + tile_id * 16 + tile_row;
-            int ci = ((g_chr_ram[chr_off] >> bit) & 1) |
-                     (((g_chr_ram[chr_off + 8] >> bit) & 1) << 1);
+            const uint8_t *bg_chr = mapper_bg_chr();
+            uint8_t chr_lo = bg_chr[chr_off], chr_hi = bg_chr[chr_off + 8];
+            {
+                int ex_pal;
+                if (mapper_exgrafix_bg(local_ty * 32 + local_tx, tile_id, tile_row,
+                                       &chr_lo, &chr_hi, &ex_pal))
+                    pal_base = ex_pal;
+            }
+            int ci = ((chr_lo >> bit) & 1) | (((chr_hi >> bit) & 1) << 1);
 
             /* PPUMASK bit1: clip leftmost 8 BG pixels (vanilla columns 0..7). */
             if (sx >= 0 && sx < 8 && !(g_ppumask & 0x02)) {

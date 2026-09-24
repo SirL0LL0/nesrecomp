@@ -1758,6 +1758,17 @@ static bool load_rom(const char *path) {
     uint16_t irq   = fixed[0x3FFE] | ((uint16_t)fixed[0x3FFF] << 8);
     printf("[Runner] Vectors: NMI=$%04X RESET=$%04X IRQ=$%04X\n", nmi, reset, irq);
 
+    if (mapper == 5) {
+        /* MMC5 WRAM size: NES 2.0 volatile + non-volatile shifts, else 8KB. */
+        uint32_t wram = 0x2000;
+        if ((header[7] & 0x0C) == 0x08) {
+            uint32_t vol = (header[10] & 0x0F) ? (64u << (header[10] & 0x0F)) : 0;
+            uint32_t nv  = (header[10] >> 4)   ? (64u << (header[10] >> 4))   : 0;
+            if (vol + nv >= 0x2000) wram = vol + nv;
+        }
+        mapper_set_wram_size(wram);
+        printf("[Runner] MMC5 WRAM: %u bytes\n", (unsigned)wram);
+    }
     mapper_init(s_prg_data, s_prg_banks, mapper, mirroring);
     if (s_chr_rom_full && chr_banks > 0)
         mapper_init_chr(s_chr_rom_full, chr_banks);

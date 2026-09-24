@@ -10,3 +10,7 @@ add_executable(mapper_selftest
 )
 target_include_directories(mapper_selftest PRIVATE ../../runner/include)
 add_test(NAME mapper_selftest COMMAND mapper_selftest)
+
+add_executable(mmc5_selftest mmc5_selftest.c ../../runner/src/mmc5.c)
+target_include_directories(mmc5_selftest PRIVATE ../../runner/include)
+add_test(NAME mmc5_selftest COMMAND mmc5_selftest)

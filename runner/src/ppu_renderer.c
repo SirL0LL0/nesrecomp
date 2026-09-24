@@ -344,8 +344,9 @@ static int bg_color_idx_at(int sx, int sy) {
     uint8_t tile_id = g_ppu_nt[(nt_off + local_ty * 32 + local_tx) & 0x0FFF];
     int bit = 7 - pixel_col;
     int chr_off = chr_base + tile_id * 16 + tile_row;
-    return ((g_chr_ram[chr_off]     >> bit) & 1)
-         | (((g_chr_ram[chr_off + 8] >> bit) & 1) << 1);
+    const uint8_t *bg_chr = mapper_bg_chr();
+    return ((bg_chr[chr_off]     >> bit) & 1)
+         | (((bg_chr[chr_off + 8] >> bit) & 1) << 1);
 }
 
 int ppu_renderer_background_opaque(int framebuffer_x, int y) {
@@ -740,7 +741,7 @@ static void render_frame_native(uint32_t *framebuf) {
 
             /* BG pattern table: PPUCTRL bit 4 selects $0000 or $1000 */
             int chr_base = (ppuctrl_row & 0x10) ? 0x1000 : 0x0000;
-            const uint8_t *bg_chr_src = g_chr_ram;
+            const uint8_t *bg_chr_src = mapper_bg_chr();
 
             /* Capture post-IRQ rendering state on the scanline right after IRQ */
             if ((g_render_irq_fired && sy == g_render_irq_scanline + 1) ||
@@ -869,6 +870,12 @@ static void render_frame_native(uint32_t *framebuf) {
                 int chr_off = chr_base + tile_id * 16 + tile_row;
                 uint8_t chr_lo = bg_chr_src[chr_off];
                 uint8_t chr_hi = bg_chr_src[chr_off + 8];
+                {
+                    int ex_pal;
+                    if (mapper_exgrafix_bg(local_ty * 32 + local_tx, tile_id, tile_row,
+                                           &chr_lo, &chr_hi, &ex_pal))
+                        pal_base = ex_pal;
+                }
                 const uint32_t *colors = bg_palettes[pal_base];
 
                 for (int i = 0; i < span; i++) {

@@ -11,6 +11,7 @@
  * Add new mappers: extend mapper_init() and mapper_write() with a new case.
  */
 #include "mapper.h"
+#include "mmc5.h"
 #include "nes_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,6 +74,108 @@ static void mapper40_apply_prg(void) {
     memcpy(s_mapper40_prg_high + 0x2000,
            s_prg_data + (size_t)(7 % total8) * 0x2000, 0x2000);
     g_current_bank = g_mapper40_bank_c000_8k >> 1;
+}
+
+/* ── Mapper 5 (MMC5) ────────────────────────────────────────────────────────── */
+static Mmc5     s_mmc5;
+static uint32_t s_mmc5_wram_size = 0x2000;
+static uint8_t  s_mmc5_chr_bg[0x2000];   /* BG pattern view (set B in 8x16 mode) */
+static uint8_t  s_mmc5_low[0x4000];      /* $8000-$BFFF snapshot for legacy readers */
+static uint8_t  s_mmc5_high[0x4000];     /* $C000-$FFFF snapshot */
+static int      s_mmc5_bufs_dirty = 1;
+int             g_mmc5_win_bank8k[4] = {0, 0, 0, 0}; /* -1 = WRAM */
+extern uint8_t  g_ppuctrl;
+extern uint8_t  g_ppumask;
+extern int      runtime_frame_scanline(void);
+extern uint8_t  g_chr_ram[0x2000];
+
+void mapper_set_wram_size(uint32_t bytes) { s_mmc5_wram_size = bytes; }
+
+static void mmc5_publish_windows(void) {
+    for (int i = 0; i < 4; i++) g_mmc5_win_bank8k[i] = mmc5_window_bank8k(&s_mmc5, i);
+    s_mmc5_bufs_dirty = 1;
+    /* g_current_bank: 16KB index of the $8000 window when it maps ROM. */
+    if (g_mmc5_win_bank8k[0] >= 0) g_current_bank = g_mmc5_win_bank8k[0] >> 1;
+}
+
+/* Fill g_chr_ram (sprites / 8x8 everything) and s_mmc5_chr_bg (BG in 8x16). */
+static void mmc5_apply_chr(void) {
+    int sprite16 = (g_ppuctrl & 0x20) != 0;
+    for (int slot = 0; slot < 8; slot++) {
+        const uint8_t *a = mmc5_chr_page(&s_mmc5, slot, 0, sprite16);
+        const uint8_t *b = mmc5_chr_page(&s_mmc5, slot, 1, sprite16);
+        if (!a || !b) return;
+        memcpy(g_chr_ram + slot * 0x400, a, 0x400);
+        memcpy(s_mmc5_chr_bg + slot * 0x400, b, 0x400);
+    }
+    if (s_chr_callback)
+        s_chr_callback(g_chr_ram, 0x2000, s_chr_callback_ctx);
+}
+
+const uint8_t *mapper_bg_chr(void) {
+    return (s_mapper_type == 5 && (g_ppuctrl & 0x20)) ? s_mmc5_chr_bg : g_chr_ram;
+}
+
+/* MMC5 ExGrafix (ExRAM mode 1): each BG tile has its own 4KB CHR bank and
+ * palette from ExRAM[tile_index]. Returns 1 and fills lo/hi/pal when active. */
+int mapper_exgrafix_bg(int tile_index, int tile_id, int row,
+                       uint8_t *lo, uint8_t *hi, int *pal) {
+    if (s_mapper_type != 5 || s_mmc5.exram_mode != 1 || !s_mmc5.chr) return 0;
+    uint8_t ex = s_mmc5.exram[tile_index & 0x3FF];
+    uint32_t bank4k = (uint32_t)(ex & 0x3F) | ((uint32_t)(s_mmc5.chr_upper & 3) << 6);
+    uint32_t off = (bank4k * 0x1000u + (uint32_t)tile_id * 16u + (uint32_t)row) % s_mmc5.chr_size;
+    *lo = s_mmc5.chr[off];
+    *hi = s_mmc5.chr[(off + 8) % s_mmc5.chr_size];
+    *pal = ex >> 6;
+    return 1;
+}
+
+void mapper_ppuctrl_changed(void) {
+    if (s_mapper_type == 5) mmc5_apply_chr();
+}
+
+static void mmc5_rebuild_bufs(void) {
+    for (int i = 0; i < 2; i++) {
+        for (int h = 0; h < 2; h++) {
+            uint16_t base = (uint16_t)(0x8000 + i * 0x4000 + h * 0x2000);
+            uint8_t *dst = (i ? s_mmc5_high : s_mmc5_low) + h * 0x2000;
+            for (int o = 0; o < 0x2000; o++) dst[o] = mmc5_cpu_read(&s_mmc5, (uint16_t)(base + o));
+        }
+    }
+    s_mmc5_bufs_dirty = 0;
+}
+
+int mapper_read_ext(uint16_t addr, uint8_t *out) {
+    if (s_mapper_type != 5 || addr < 0x5000) return 0;
+    if (addr < 0x6000) {
+        if (addr == 0x5204 && !s_mmc5.irq_fired) {
+            /* CPU code polls the in-frame bit (e.g. the NMI waits for it): derive it
+             * from time-in-frame, since the runner executes the NMI atomically. */
+            int line = runtime_frame_scanline();
+            s_mmc5.in_frame = (g_ppumask & 0x18) && line >= 21 && line < 21 + 240;
+        }
+        return mmc5_reg_read(&s_mmc5, addr, out);
+    }
+    *out = mmc5_cpu_read(&s_mmc5, addr);
+    return 1;
+}
+
+int mapper_write_ext(uint16_t addr, uint8_t val) {
+    if (s_mapper_type != 5 || addr < 0x5000) return 0;
+    if (addr < 0x6000) {
+        static int s_trace = -1;
+        if (s_trace < 0) s_trace = getenv("NESRECOMP_MMC5_TRACE") ? 1 : 0;
+        if (s_trace && addr != 0x5204 && (addr < 0x5C00 || addr > 0x5FFF))
+            fprintf(stderr, "[MMC5] f=%llu $%04X=%02X\n", (unsigned long long)g_frame_count, addr, val);
+        mmc5_reg_write(&s_mmc5, addr, val);
+        if ((addr >= 0x5100 && addr <= 0x5117) || addr == 0x5113) mmc5_publish_windows();
+        if (addr == 0x5101 || addr == 0x5130 || (addr >= 0x5120 && addr <= 0x512B))
+            mmc5_apply_chr();
+    } else {
+        mmc5_cpu_write(&s_mmc5, addr, val);
+        s_mmc5_bufs_dirty = 1;
+    }
+    return 1;
 }
 
 /* ── Mapper 1 (MMC1) state ─────────────────────────────────────────────────── */
@@ -317,6 +420,11 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
         mapper40_apply_prg();
     }
 
+    if (mapper_type == 5) {
+        mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, s_mmc5_wram_size);
+        mmc5_publish_windows();
+    }
+
     /* GxROM: power-on selects the last 32KB bank (vectors live there).
      * g_current_bank is in 16KB units; GxROM 32KB bank N = 16KB banks 2N, 2N+1.
      * Set to 2N so get_switchable returns lower half, get_fixed returns upper. */
@@ -348,6 +456,12 @@ void mapper_init_chr(const uint8_t *chr_data, int chr_banks) {
     if (chr_banks > 0 && s_mapper_type == 4) {
         mmc3_apply_chr(); /* Load initial CHR banks into g_chr_ram */
         printf("[Mapper] CHR ROM: %d x 8KB banks (MMC3), initial bank switching applied\n", chr_banks);
+    }
+    if (chr_banks > 0 && s_mapper_type == 5) {
+        s_mmc5.chr = chr_data;
+        s_mmc5.chr_size = (uint32_t)chr_banks * 0x2000;
+        mmc5_apply_chr();
+        printf("[Mapper] CHR ROM: %d x 8KB banks (MMC5), initial banks loaded\n", chr_banks);
     }
     if (chr_banks > 0 && s_mapper_type == 66) {
         /* GxROM: load initial CHR bank 0 */
@@ -462,6 +576,12 @@ void mapper_write(uint16_t addr, uint8_t val) {
             }
             return;
 
+        case 5:
+            /* MMC5: $8000-$DFFF can be WRAM; ROM windows ignore writes. */
+            mmc5_cpu_write(&s_mmc5, addr, val);
+            s_mmc5_bufs_dirty = 1;
+            return;
+
         case 40:
             if (addr >= 0x8000 && addr <= 0x9FFF) {
                 s_mapper40_irq_enabled = 0;
@@ -517,6 +637,7 @@ void mapper_write(uint16_t addr, uint8_t val) {
 }
 
 int mapper_clock_scanline(void) {
+    if (s_mapper_type == 5) return mmc5_clock_scanline(&s_mmc5);
     if (s_mapper_type != 4) return 0; /* only MMC3 has scanline IRQ */
 
     int fire = 0;
@@ -557,6 +678,9 @@ const uint8_t *mapper_get_switchable_bank(void) {
         case 4:
             /* MMC3: pre-built 16KB buffer from 2x 8KB banks */
             return s_mmc3_prg_low;
+        case 5:
+            if (s_mmc5_bufs_dirty) mmc5_rebuild_bufs();
+            return s_mmc5_low;
         case 40:
             /* Fixed physical banks 4/5 form the contiguous $8000-$BFFF pair. */
             return s_prg_data + (size_t)(4 % (s_prg_banks * 2)) * 0x2000;
@@ -574,6 +698,9 @@ const uint8_t *mapper_get_fixed_bank(void) {
         case 4:
             /* MMC3: pre-built 16KB buffer from 2x 8KB banks */
             return s_mmc3_prg_high;
+        case 5:
+            if (s_mmc5_bufs_dirty) mmc5_rebuild_bufs();
+            return s_mmc5_high;
         case 40:
             return s_mapper40_prg_high;
         case 66:
@@ -586,10 +713,22 @@ const uint8_t *mapper_get_fixed_bank(void) {
 }
 
 int mapper_get_mirroring(void) {
+    if (s_mapper_type == 5) {
+        /* Only the plain CIRAM layouts are expressible here; ExRAM/fill-mode
+         * nametables need renderer support (TODO). */
+        switch (s_mmc5.nt_map) {
+            case 0x00: return 0;   /* one-screen lower */
+            case 0x55: return 1;   /* one-screen upper */
+            case 0x50: return 3;   /* horizontal */
+            default:   return 2;   /* $44 = vertical (Just Breed's init value) */
+        }
+    }
     return s_mirroring;
 }
 
 uint8_t mapper_peek_prg(uint16_t addr) {
+    if (s_mapper_type == 5)
+        return addr < 0x6000 ? 0 : mmc5_cpu_read(&s_mmc5, addr);
     if (s_mapper_type == 40) {
         if (!s_prg_data || addr < 0x6000) return 0;
         int bank8;

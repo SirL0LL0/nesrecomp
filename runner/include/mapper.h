@@ -10,6 +10,22 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
                  int mapper_type, int initial_mirroring);
 
 void mapper_init_chr(const uint8_t *chr_data, int chr_banks);
+
+/* MMC5 (mapper 5) support. See mmc5.h.
+ *  mapper_read_ext/write_ext: CPU bus $5000-$FFFF for mapper 5 (registers,
+ *    ExRAM, banked WRAM). Return 1 if handled; 0 for other mappers.
+ *  mapper_bg_chr: pattern data the BG pass must use (differs from g_chr_ram
+ *    only for MMC5 with 8x16 sprites).
+ *  mapper_ppuctrl_changed: call after a $2000 write (8x16 flag selects CHR set).
+ *  mapper_set_wram_size: call before mapper_init (bytes, power of two). */
+int  mapper_read_ext(uint16_t addr, uint8_t *out);
+int  mapper_write_ext(uint16_t addr, uint8_t val);
+const uint8_t *mapper_bg_chr(void);
+int  mapper_exgrafix_bg(int tile_index, int tile_id, int row,
+                        uint8_t *lo, uint8_t *hi, int *pal);
+void mapper_ppuctrl_changed(void);
+void mapper_set_wram_size(uint32_t bytes);
+extern int g_mmc5_win_bank8k[4];
 void mapper_write(uint16_t addr, uint8_t val);
 const uint8_t *mapper_get_switchable_bank(void);
 const uint8_t *mapper_get_fixed_bank(void);
