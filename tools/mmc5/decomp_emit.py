@@ -925,6 +925,7 @@ class Fn:
             self.needs_s0 = True
             return "JSR_DYN(0x%04X, 0x%04X);" % (a, ret) if self.c.runnable else "call_dyn(%s);" % self.faddr(a)
         if kd[0] == "inline":
+            self.needs_s0 = True         # JSR_INLINE ends by the floor when a dispatch handler returns past this frame
             cont = self.rom.base[self.u] + kd[2]
             if self.c.runnable:
                 return "JSR_INLINE(0x%04X, 0x%04X, 0x%04X);" % (a, ret, cont)

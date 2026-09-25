@@ -55,9 +55,11 @@ extern int      g_rti_bank;
 #define JSR_DYN(addr, ret) do { uint8_t _sb = g_cpu.S; NesDecompFn _df = nes_decomp_lookup(addr); PUSH16(ret); \
                                 if (_df) { _df(); } \
                                 else if (nes_interp_run_until(addr, (uint16_t)((ret) + 1), _sb, 1, _s0) == 2) return; } while (0)
-/* JSR to a routine that reads inline bytes after the call: the interpreter runs it and stops at `cont` */
+/* JSR to a routine that reads inline bytes after the call: the interpreter runs it and stops at `cont`. Dispatch
+ * routines (jump table after the JSR) may instead RTS past this function's frame: then the run ends by the floor
+ * (S above the entry S) and this function returns, exactly like a JSR_DYN whose callee pops our return address. */
 #define JSR_INLINE(addr, ret, cont) do { uint8_t _sb = g_cpu.S; PUSH16(ret); \
-                                         nes_interp_run_until(addr, cont, _sb, 0, 0); } while (0)
+                                         if (nes_interp_run_until(addr, cont, _sb, 1, _s0) == 2) return; } while (0)
 /* JSR to an inline dispatch table: control never comes back here, the routine returns past this frame */
 #define JSR_TABLE(addr, ret) do { PUSH16(ret); nes_interp_run_until(addr, 0, 0, 1, _s0); return; } while (0)
 /* first statement of every decompiled function: if its code differs in the running ROM, let the interpreter run it */

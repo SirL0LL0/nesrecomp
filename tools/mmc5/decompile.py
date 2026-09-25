@@ -552,6 +552,7 @@ def emit_function(entry, body, ins, rom, entries, fn_ok, runnable, fname_of, fn_
                 needs_s0 = True
                 txt = "JSR_DYN(0x%04X, 0x%04X);" % (a, ret)
             elif kd[0] == "inline":
+                needs_s0 = True          # JSR_INLINE ends by the floor when a dispatch handler returns past this frame
                 cont = rom.base[u] + kd[2]
                 txt = "JSR_INLINE(0x%04X, 0x%04X, 0x%04X);" % (a, ret, cont)
             elif kd[0] == "table":

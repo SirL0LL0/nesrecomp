@@ -1333,7 +1333,7 @@ void maybe_fire_pending_vblank(void) {
         s_dbg_nmi_fires++;
         nes_vblank_callback();
     } else if (s_vblank_depth > 1) {
-        g_ram[0x1A] = 1;
+        if (g_nested_nmi_policy != NESTED_NMI_RUN_HANDLER) g_ram[0x1A] = 1;   /* spin-wait shim tuned for other games */
     } else {
         nes_cosim_emit_boundary();   /* NMI-off (non-nested) deferred frame */
     }
@@ -1666,6 +1666,16 @@ void nes_trace_sram_fetch(uint16_t addr, uint8_t val) {
 void nes_write(uint16_t addr, uint8_t val) {
     bus_tick();
     s_open_bus = val;   /* writes also drive the data bus (open-bus tracking) */
+
+    {   /* NESRECOMP_WATCHW=0020: log every CPU write to that address with the guest pc that is executing */
+        static int s_ww = -1; static uint16_t s_ww_addr; static long s_ww_lines;
+        if (s_ww < 0) { const char *e = getenv("NESRECOMP_WATCHW"); s_ww = e ? 1 : 0; if (e) s_ww_addr = (uint16_t)strtoul(e, NULL, 16); }
+        if (s_ww == 1 && addr == s_ww_addr && s_ww_lines < 100000) {
+            s_ww_lines++;
+            fprintf(stderr, "[WW] f=%llu $%04X=%02X guest_pc=$%04X A=%02X X=%02X Y=%02X S=%02X\n",
+                    (unsigned long long)g_frame_count, addr, val, s_guest_pc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S);
+        }
+    }
 
     /* DIAGNOSTIC (env-gated): flag when the 6502 stack pointer descends into the
      * low stack page (where some games keep a VRAM update buffer) — once per

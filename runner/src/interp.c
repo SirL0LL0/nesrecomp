@@ -433,6 +433,30 @@ static int interp_dispatch_target(uint16_t target, int is_tail) {
     return interp_probe_native_target(target);
 }
 
+/* NESRECOMP_WATCH="0020,0205": report which instruction (or interrupt at the boundary before ipc) changed those CPU
+ * RAM bytes; only sees changes made while the interpreter drives (translated code runs between checks). */
+static void interp_watch(uint16_t ipc, const char *tag) {
+    static int s_wt = -1; static uint16_t s_wt_addr[8]; static uint8_t s_wt_old[8]; static int s_wt_n; static uint16_t s_wt_pc;
+    static long s_wt_lines;
+    if (s_wt < 0) {
+        const char *env = getenv("NESRECOMP_WATCH"); s_wt = 0;
+        for (const char *p = env; p && *p && s_wt_n < 8; ) {
+            unsigned v = (unsigned)strtoul(p, (char **)&p, 16); s_wt_addr[s_wt_n] = (uint16_t)(v & 0x7FF);
+            s_wt_old[s_wt_n++] = g_ram[v & 0x7FF]; s_wt = 1;
+            if (*p == ',') p++; else break;
+        }
+    }
+    if (s_wt != 1 || s_wt_lines >= 200000) return;
+    for (int q = 0; q < s_wt_n; q++)
+        if (g_ram[s_wt_addr[q]] != s_wt_old[q]) {
+            fprintf(stderr, "[W] f=%llu $%04X %02X->%02X (%s) prev_pc=$%04X ipc=$%04X A=%02X X=%02X Y=%02X S=%02X\n",
+                    (unsigned long long)g_frame_count, s_wt_addr[q], s_wt_old[q], g_ram[s_wt_addr[q]], tag,
+                    s_wt_pc, ipc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S);
+            s_wt_old[q] = g_ram[s_wt_addr[q]]; s_wt_lines++;
+        }
+    s_wt_pc = ipc;
+}
+
 static NesInterpExit make_exit(NesInterpExitKind kind, uint16_t entry,
                                uint16_t next_pc, uint8_t entry_s) {
     NesInterpExit out;
@@ -464,6 +488,15 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
     int previous_handoff_mode = s_active_handoff_mode;
     s_active_handoff_mode = (int)handoff_mode;
     s_stats.runs++;
+    {
+        static int s_rt0 = -2; static long s_rt0_lines;
+        if (s_rt0 == -2) { const char *e = getenv("NESRECOMP_RUN_TRACE"); s_rt0 = e ? atoi(e) : -1; }
+        if (s_rt0 >= 0 && (long long)g_frame_count >= s_rt0 && s_rt0_lines < 4000) {
+            s_rt0_lines++;
+            fprintf(stderr, "[run] BEG f=%llu depth=%d entry=$%04X stop=%d mode=%d S=%02X\n",
+                    (unsigned long long)g_frame_count, s_depth, entry, stop_on_stack_lift, (int)handoff_mode, g_cpu.S);
+        }
+    }
     nes_dring_mark('I', entry);   /* interp run start (cpu pc) */
 
     const uint8_t S_floor = entry_s;
@@ -532,7 +565,9 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
         uint16_t abs16 = (uint16_t)(op1 | ((uint16_t)op2 << 8));
 
         /* NMI is sampled between instructions (mirrors codegen's per-insn call). */
+        interp_watch(ipc, "insn");
         nes_cpu_instruction_boundary(ipc, e->cycles);
+        interp_watch(ipc, "interrupt/boundary");
         {
             /* NESRECOMP_PC_TRACE="D094,C21D": log frame + registers whenever one of these PCs executes */
             static int s_pt = -1; static uint16_t s_pt_list[16]; static int s_pt_n; static long s_pt_lines;
@@ -890,6 +925,16 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
     }
 
 done:
+    {   /* NESRECOMP_RUN_TRACE=frame_from: log the start/end of every interpreter run from that frame on */
+        static int s_rt = -2; static long s_rt_lines;
+        if (s_rt == -2) { const char *e = getenv("NESRECOMP_RUN_TRACE"); s_rt = e ? atoi(e) : -1; }
+        if (s_rt >= 0 && (long long)g_frame_count >= s_rt && s_rt_lines < 4000) {
+            s_rt_lines++;
+            fprintf(stderr, "[run] END f=%llu depth=%d entry=$%04X stop=%d kind=%d entry_s=%02X exit_s=%02X next=$%04X n=%u rti=%04X rts=%04X\n",
+                    (unsigned long long)g_frame_count, s_depth, entry, stop_on_stack_lift, (int)result.kind, entry_s, g_cpu.S,
+                    result.next_pc, this_run, g_rti_target, g_rts_target);
+        }
+    }
     if (this_run > s_stats.max_instrs_run) s_stats.max_instrs_run = this_run;
     interp_note_hotspot(entry, entry_bank, this_run);
     s_active_handoff_mode = previous_handoff_mode;

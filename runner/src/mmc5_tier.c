@@ -157,6 +157,10 @@ void func_RESET(void) {
     /* BRK come sull'hardware: alcune routine con dati inline ne dipendono.
      * NESRECOMP_NO_HW_BRK=1 lo disattiva (solo per confronti A/B). */
     g_interp_hw_brk = (getenv("NESRECOMP_NO_HW_BRK") || getenv("JB_NO_HW_BRK")) ? 0 : 1;
+    /* Un NMI che dura piu' di un frame viene interrotto dal successivo, come sull'hardware (Castlevania III lo prevede:
+     * $1B distingue il percorso rientrante). Il vecchio comportamento (saltare il gestore e scrivere 1 in $1A/$20, tarato
+     * su altri giochi) corrompe la RAM del gioco. NESRECOMP_LEGACY_NESTED_NMI=1 lo ripristina per confronti. */
+    if (!getenv("NESRECOMP_LEGACY_NESTED_NMI")) g_nested_nmi_policy = NESTED_NMI_RUN_HANDLER;
 #ifdef NESRECOMP_MMC5_BLOCKS
     { extern void nes_mmc5_blocks_init(void); nes_mmc5_blocks_init(); }
 #endif
