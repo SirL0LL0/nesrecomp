@@ -992,7 +992,9 @@ static void set_guest_execution_point(uint16_t cpu_pc, int tick_charged) {
 static unsigned     s_loop_iters   = 0;
 static uint16_t     s_loop_last_pc = 0;
 
+void (*g_boundary_trace_fn)(uint16_t pc, int cycles) = NULL;   /* differential-check hook (interp_boot.c verify) */
 void nes_cpu_instruction_boundary(uint16_t cpu_pc, int cycles) {
+    if (g_boundary_trace_fn) g_boundary_trace_fn(cpu_pc, cycles);
     if (s_unclocked_depth) return;
     set_guest_execution_point(cpu_pc, 1);
     if (s_skip_next_boundary_tick && cpu_pc == s_guest_resume_pc) {

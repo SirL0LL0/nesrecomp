@@ -51,6 +51,12 @@ static uint16_t s_probe_addr  = 0;
 
 static int s_depth = 0;             /* interp_run nesting depth */
 
+/* nes_interp_run_until state (applies only to the run started by that call, identified by depth) */
+static int      s_ru_active = 0, s_ru_floor_valid = 0, s_ru_depth = 0;
+static uint16_t s_ru_pc = 0;
+static uint8_t  s_ru_s = 0, s_ru_floor = 0;
+static int      s_ru_reason = 0;    /* 1 = reached stop_pc, 2 = returned past the C function's frame (floor) */
+
 /* Generated control-flow uses these sidecars to carry a guest continuation
  * across C frames. The interpreter must participate in the same contract when
  * a native handoff returns through an interpreted caller. */
@@ -275,13 +281,73 @@ void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits
     (void)nunits;
     s_blk_tab = tab; s_blk_n = n; s_blk_code = codebits;
     memset(s_blk_by_unit, 0, sizeof s_blk_by_unit);
-    for (int i = 0; i < n; i++) s_blk_by_unit[tab[i].unit][tab[i].off] = &tab[i];
+    /* Generated blocks describe the ROM they were made from; a translated ROM patches code, so every block is
+     * checked against the PRG that is actually loaded and skipped (= interpreted) on mismatch. */
+    uint32_t prg_size = 0;
+    const uint8_t *prg = mapper_get_prg_raw(&prg_size);
+    int good = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t o = ((uint32_t)tab[i].unit << 13) | tab[i].off;
+        if (prg && o + tab[i].nbytes <= prg_size && nes_fnv1a(prg + o, tab[i].nbytes, NES_FNV_INIT) == tab[i].hash) {
+            s_blk_by_unit[tab[i].unit][tab[i].off] = &tab[i];
+            good++;
+        }
+    }
     atexit(blocks_report);
-    fprintf(stderr, "[blocks] %d translated blocks installed (%s)\n", n, s_blk_on ? "active" : "inactive");
+    fprintf(stderr, "[blocks] %d/%d translated blocks match this ROM and are installed (%s)\n", good, n, s_blk_on ? "active" : "inactive");
+}
+
+/* ---- Decompiled functions registry (nes_decomp.h) ---- */
+#include "nes_decomp.h"
+static const NesDecompEntry *s_dec_by_unit[BLK_UNITS][8192];
+static int s_dec_on = 0;
+
+void nes_decomp_install(const NesDecompEntry *tab, int n, uint8_t *valid) {
+    const char *dis = getenv("NESRECOMP_DECOMP");
+    memset(s_dec_by_unit, 0, sizeof s_dec_by_unit);
+    /* Each function carries a hash of its instruction bytes: functions whose code differs in the loaded ROM
+     * (translated ROMs patch code) are marked invalid; their C body falls back to the interpreter (DEC_GUARD). */
+    uint32_t prg_size = 0;
+    const uint8_t *prg = mapper_get_prg_raw(&prg_size);
+    int good = 0;
+    for (int i = 0; i < n; i++) {
+        uint32_t h = NES_FNV_INIT;
+        int ok = prg != NULL;
+        for (const uint16_t *r = tab[i].ranges; ok && r[1]; r += 2) {
+            uint32_t o = ((uint32_t)tab[i].unit << 13) | r[0];
+            if (o + r[1] > prg_size) { ok = 0; break; }
+            h = nes_fnv1a(prg + o, r[1], h);
+        }
+        valid[i] = (ok && h == tab[i].hash) ? 1 : 0;
+        if (valid[i]) { s_dec_by_unit[tab[i].unit][tab[i].off] = &tab[i]; good++; }
+    }
+    s_dec_on = !(dis && (!strcmp(dis, "0") || !strcmp(dis, "off")));
+    fprintf(stderr, "[decomp] %d/%d decompiled functions match this ROM (%s)\n", good, n, s_dec_on ? "active" : "inactive");
+}
+
+NesDecompFn nes_decomp_lookup(uint16_t addr) {
+    if (!s_dec_on || addr < 0x8000) return NULL;
+    int w = (addr - 0x8000) >> 13;
+    int unit = g_mmc5_win_bank8k[w];
+    if (unit < 0 || unit >= BLK_UNITS) return NULL;
+    const NesDecompEntry *e = s_dec_by_unit[unit][addr & 0x1FFF];
+    return (e && e->win == w) ? e->fn : NULL;
 }
 
 void nes_interp_step_hook(uint16_t pc, uint8_t opcode) {
     const OpcodeEntry *e = &g_opcode_table[opcode];
+    {   /* NESRECOMP_STEP_TRACE="8096,809B": print S and registers when translated/decompiled code executes those PCs */
+        static int s_st = -1; static uint16_t s_st_list[32]; static int s_st_n;
+        if (s_st < 0) {
+            const char *env = getenv("NESRECOMP_STEP_TRACE"); s_st = 0;
+            for (const char *p = env; p && *p && s_st_n < 32; ) {
+                s_st_list[s_st_n++] = (uint16_t)strtoul(p, (char **)&p, 16); s_st = 1;
+                if (*p == ',') p++; else break;
+            }
+        }
+        if (s_st) for (int q = 0; q < s_st_n; q++) if (s_st_list[q] == pc)
+            fprintf(stderr, "[step] pc=%04X A=%02X X=%02X Y=%02X S=%02X\n", pc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S);
+    }
     nes_cpu_instruction_boundary(pc, e->cycles);
     mapper_cov_mark(pc, e->size, !(s_cov_seq_ok && pc == s_cov_seq));
     s_cov_seq = (uint16_t)(pc + e->size); s_cov_seq_ok = 1;
@@ -403,6 +469,19 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
             interp_note_decline(entry, ipc, "interpreter watchdog");
             result = make_exit(NES_INTERP_EXIT_DECLINED, entry, ipc, entry_s);
             break;
+        }
+
+        if (s_ru_active && s_ru_depth == s_depth &&
+            ((s_ru_pc && ipc == s_ru_pc && g_cpu.S == s_ru_s) ||
+             (s_ru_floor_valid && g_cpu.S > s_ru_floor))) {
+            static int s_ru_dbg = -1;
+            if (s_ru_dbg < 0) s_ru_dbg = getenv("NESRECOMP_RU_DEBUG") ? 1 : 0;
+            if (s_ru_dbg)
+                fprintf(stderr, "[ru] exit entry=%04X at ipc=%04X S=%02X | stop_pc=%04X stop_s=%02X floor_valid=%d floor=%02X depth=%d\n",
+                        entry, ipc, g_cpu.S, s_ru_pc, s_ru_s, s_ru_floor_valid, s_ru_floor, s_depth);
+            s_ru_reason = (s_ru_pc && ipc == s_ru_pc && g_cpu.S == s_ru_s) ? 1 : 2;
+            result = make_exit(NES_INTERP_EXIT_NATIVE_ESCAPE, entry, ipc, entry_s);
+            goto done;
         }
 
         if (s_blk_on && !max_steps) {
@@ -888,6 +967,42 @@ int nes_interp_dispatch_bank(uint16_t cpu_addr, uint16_t gen_addr, int bank) {
     nes_record_dispatch_miss_bank(gen_addr, cpu_addr, bank);
     nes_dispatch_miss_apply_policy(addr);
     return 0;
+}
+
+/* Decompiled code (nes_decomp.h) hands routines it cannot express as a C function (inline arguments,
+ * pulled return addresses, computed dispatch, undecoded targets) to the interpreter, which runs them
+ * as an island until control comes back to a point the C code knows:
+ *   stop_pc != 0     : the continuation after the routine's inline bytes, with S == stop_s
+ *   floor_valid      : the routine (or its dispatch target) returned past the C function's own frame (S > floor_s)
+ * Returns 0 if the interpreter declined, 1 if it stopped at stop_pc, 2 if it returned past the frame (floor). */
+int nes_interp_run_until(uint16_t entry, uint16_t stop_pc, uint8_t stop_s, int floor_valid, uint8_t floor_s) {
+    interp_lazy_init();
+    int  o_active = s_ru_active, o_valid = s_ru_floor_valid, o_depth = s_ru_depth;
+    uint16_t o_pc = s_ru_pc; uint8_t o_s = s_ru_s, o_floor = s_ru_floor;
+    s_ru_active = 1; s_ru_pc = stop_pc; s_ru_s = stop_s; s_ru_floor_valid = floor_valid; s_ru_floor = floor_s;
+    s_ru_depth = s_depth + 1;
+    s_ru_reason = 0;
+    /* The island's RTS/RTI leave their targets in the sidecars the interpreter uses to resume after a native
+     * callee; native (C) code never sets them, so an island must not leak them to the interpreter frame below. */
+    uint16_t o_rts = g_rts_target, o_rti = g_rti_target, o_rtis = g_rti_source; int o_rtib = g_rti_bank;
+    NesInterpExit ex = interp_run_ex(entry, 0, NES_INTERP_HANDOFF_ISLAND, 0);
+    /* floor mode = the island is the rest of the C function: its final RTS/RTI is the function's return and its
+     * target must reach the interpreter frame below; stop-address mode = the island was only a call inside it. */
+    if (!floor_valid) { g_rts_target = o_rts; g_rti_target = o_rti; g_rti_source = o_rtis; g_rti_bank = o_rtib; }
+    s_ru_active = o_active; s_ru_pc = o_pc; s_ru_s = o_s; s_ru_floor_valid = o_valid; s_ru_floor = o_floor; s_ru_depth = o_depth;
+    if (!interp_exit_handled(ex)) return 0;
+    return s_ru_reason ? s_ru_reason : 1;
+}
+
+/* Reference execution for differential checks of decompiled code: run the routine at `addr` purely in the
+ * interpreter (island mode, no native handoff, ignoring an armed covered-ness probe). */
+int nes_interp_run_island(uint16_t addr) {
+    interp_lazy_init();
+    int armed = s_probe_armed;
+    s_probe_armed = 0;
+    int ok = interp_exit_handled(interp_run_ex(addr, 1, NES_INTERP_HANDOFF_ISLAND, 0));
+    s_probe_armed = armed;
+    return ok;
 }
 
 /* Legacy entry: cpu==gen address, g_current_bank attribution. */

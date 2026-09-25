@@ -177,6 +177,12 @@ void mapper_cov_mark(uint16_t pc, int size, int is_target) {
 }
 
 const uint8_t *mapper_get_exram(void) { return s_mapper_type == 5 ? s_mmc5.exram : NULL; }
+/* Raw PRG ROM (all units, no banking) - lets translated/decompiled code verify it matches the running ROM. */
+const uint8_t *mapper_get_prg_raw(uint32_t *size) {
+    if (s_mapper_type == 5) { if (size) *size = s_mmc5.prg_size; return s_mmc5.prg; }
+    if (size) *size = 0;
+    return NULL;
+}
 const uint8_t *mapper_get_chr_rom(uint32_t *size) {
     if (size) *size = s_mapper_type == 5 ? s_mmc5.chr_size : 0;
     return s_mapper_type == 5 ? s_mmc5.chr : NULL;

@@ -26,7 +26,16 @@ typedef struct {
     uint16_t   off;     /* offset inside the unit */
     uint16_t   ninsn;   /* instructions in the block */
     NesBlockFn fn;
+    uint16_t   nbytes;  /* code bytes covered, starting at `off` */
+    uint32_t   hash;    /* FNV-1a of those bytes in the ROM the block was generated from */
 } NesBlockEntry;
+
+/* FNV-1a, used to check generated code against the ROM that is actually running (translated ROMs patch code). */
+static inline uint32_t nes_fnv1a(const uint8_t *p, uint32_t n, uint32_t h) {
+    for (uint32_t i = 0; i < n; i++) { h ^= p[i]; h *= 16777619u; }
+    return h;
+}
+#define NES_FNV_INIT 2166136261u
 
 /* codebits: nunits * 1024 bytes; bit set = an instruction starts there in the translated code set. */
 void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits, int nunits);
