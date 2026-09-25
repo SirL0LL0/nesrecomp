@@ -49,3 +49,8 @@ int     apu_get_state_blob(uint8_t *buf, int cap);
 /* Restore a blob produced by apu_get_state_blob. Host audio queues are cleared
  * so samples generated before the restored guest state are not replayed. */
 int     apu_set_state_blob(const uint8_t *buf, int len);
+
+/* MMC5 expansion audio: registers $5000-$5007 (two pulses, no sweep), $5010/$5011 (PCM), $5015 (enables).
+ * Called by the mapper (mapper.c) for MMC5 games. $5015 reads return the pulses' length status (bits 0/1). */
+void    apu_mmc5_write(uint16_t addr, uint8_t val);
+uint8_t apu_mmc5_read_status(void);

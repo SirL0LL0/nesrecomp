@@ -185,18 +185,10 @@ static void dot_render_scanline(int sy, uint32_t *target, int snapshot) {
             int local_tx = tile_x % 32;
 
             int virt_nt = nt_row * 2 + nt_col;
-            int phys_nt;
-            switch (mirroring) {
-                case 0:  phys_nt = 0;            break;
-                case 1:  phys_nt = 1;            break;
-                case 2:  phys_nt = virt_nt & 1;  break;
-                case 3:  phys_nt = virt_nt >> 1; break;
-                default: phys_nt = virt_nt & 1;  break;
-            }
-            int nt_off = phys_nt * 0x400;
+            const uint8_t *ntp = mapper_nt_ptr(virt_nt);
 
-            uint8_t tile_id = g_ppu_nt[(nt_off + local_ty * 32 + local_tx) & 0x0FFF];
-            uint8_t attr    = g_ppu_nt[(nt_off + 0x3C0 + (local_ty / 4) * 8 + (local_tx / 4)) & 0x0FFF];
+            uint8_t tile_id = ntp[local_ty * 32 + local_tx];
+            uint8_t attr    = ntp[0x3C0 + (local_ty / 4) * 8 + (local_tx / 4)];
             int sub_x = (local_tx / 2) & 1, sub_y = (local_ty / 2) & 1;
             int pal_base = (attr >> ((sub_y * 2 + sub_x) * 2)) & 0x03;
 
@@ -209,6 +201,10 @@ static void dot_render_scanline(int sy, uint32_t *target, int snapshot) {
                 if (mapper_exgrafix_bg(local_ty * 32 + local_tx, tile_id, tile_row,
                                        &chr_lo, &chr_hi, &ex_pal))
                     pal_base = ex_pal;
+                int sp_pal, sp_fy; const uint8_t *sp_chr;
+                if (mapper_mmc5_split_tile(sy, (sx + (g_ppuscroll_x & 7)) >> 3, &sp_pal, &sp_chr, &sp_fy)) {
+                    chr_lo = sp_chr[sp_fy]; chr_hi = sp_chr[sp_fy + 8]; pal_base = sp_pal;   /* MMC5 split region */
+                }
             }
             int ci = ((chr_lo >> bit) & 1) | (((chr_hi >> bit) & 1) << 1);
 

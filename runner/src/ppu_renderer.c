@@ -332,16 +332,7 @@ static int bg_color_idx_at(int sx, int sy) {
     int local_tx = tile_x % 32;
     int local_ty = tile_y % 30;
     int virt_nt = nt_row * 2 + nt_col;
-    int phys_nt;
-    switch (mapper_get_mirroring()) {
-        case 0:  phys_nt = 0;            break;
-        case 1:  phys_nt = 1;            break;
-        case 2:  phys_nt = virt_nt & 1;  break;
-        case 3:  phys_nt = virt_nt >> 1; break;
-        default: phys_nt = virt_nt & 1;  break;
-    }
-    int nt_off  = phys_nt * 0x400;
-    uint8_t tile_id = g_ppu_nt[(nt_off + local_ty * 32 + local_tx) & 0x0FFF];
+    uint8_t tile_id = mapper_nt_ptr(virt_nt)[local_ty * 32 + local_tx];
     int bit = 7 - pixel_col;
     int chr_off = chr_base + tile_id * 16 + tile_row;
     const uint8_t *bg_chr = mapper_bg_chr();
@@ -844,24 +835,14 @@ static void render_frame_native(uint32_t *framebuf) {
                 int nt_col   = tile_x >> 5;
                 int local_tx = tile_x & 31;
 
-                /* Resolve virtual NT to physical NT using cached mirroring mode */
+                /* Logical NT -> its 1KB source (CIRAM page by mirroring, or MMC5 ExRAM / fill) */
                 int virt_nt = nt_row * 2 + nt_col;
-                int phys_nt;
-                switch (mirroring) {
-                    case 0:  phys_nt = 0;            break; /* one-screen lower */
-                    case 1:  phys_nt = 1;            break; /* one-screen upper */
-                    case 2:  phys_nt = virt_nt & 1;  break; /* vertical */
-                    case 3:  phys_nt = virt_nt >> 1; break; /* horizontal */
-                    default: phys_nt = virt_nt & 1;  break;
-                }
-                int nt_off = phys_nt * 0x400;
+                const uint8_t *ntp = mapper_nt_ptr(virt_nt);
 
-                uint8_t tile_id =
-                    g_ppu_nt[(nt_off + local_ty * 32 + local_tx) & 0x0FFF];
+                uint8_t tile_id = ntp[local_ty * 32 + local_tx];
                 int attr_bx = local_tx >> 2;
                 int attr_by = local_ty >> 2;
-                uint8_t attr =
-                    g_ppu_nt[(nt_off + 0x3C0 + attr_by * 8 + attr_bx) & 0x0FFF];
+                uint8_t attr = ntp[0x3C0 + attr_by * 8 + attr_bx];
                 int sub_x = (local_tx >> 1) & 1;
                 int sub_y = (local_ty >> 1) & 1;
                 int pal_base =
@@ -875,6 +856,10 @@ static void render_frame_native(uint32_t *framebuf) {
                     if (mapper_exgrafix_bg(local_ty * 32 + local_tx, tile_id, tile_row,
                                            &chr_lo, &chr_hi, &ex_pal))
                         pal_base = ex_pal;
+                    int sp_pal, sp_fy; const uint8_t *sp_chr;
+                    if (mapper_mmc5_split_tile(sy, (sx + (scroll_x & 7)) >> 3, &sp_pal, &sp_chr, &sp_fy)) {
+                        chr_lo = sp_chr[sp_fy]; chr_hi = sp_chr[sp_fy + 8]; pal_base = sp_pal;   /* MMC5 split region */
+                    }
                 }
                 const uint32_t *colors = bg_palettes[pal_base];
 

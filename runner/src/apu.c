@@ -136,6 +136,18 @@ typedef struct {
 } DMC;
 
 static Pulse    s_p1, s_p2;
+
+/* ---- MMC5 expansion audio ($5000-$5015) ----------------------------------------------------------------------
+ * Two extra pulse channels and an 8-bit PCM output (Just Breed and the Famicom Akumajou Densetsu use them).
+ * The pulses behave like the 2A03 ones without a sweep unit; their envelope and length counter run from the
+ * MMC5's own 240 Hz clock (one tick every 7457.5 CPU cycles) instead of the APU frame sequencer.
+ * Mixing is an approximation (same nonlinear pulse curve as the internal pulses, PCM scaled linearly): the
+ * hardware level relation to the 2A03 channels is not documented precisely. */
+static Pulse    s_m1, s_m2;
+static uint8_t  s_mmc5_pcm;            /* $5011 (8-bit, "write mode") */
+static int      s_mmc5_clk;            /* CPU cycles since the last 240 Hz tick, in half-cycles */
+#define MMC5_TICK_HALF_CYCLES 14915    /* 7457.5 CPU cycles */
+#define MMC5_PCM_GAIN 0.40f            /* full-scale $5011 relative to the 0..1 mixer range */
 static Triangle s_tri;
 static Noise    s_noise;
 static DMC      s_dmc;
@@ -204,6 +216,8 @@ static void refresh_dmc_period(void) {
 static void refresh_timer_periods(void) {
     refresh_pulse_period(&s_p1);
     refresh_pulse_period(&s_p2);
+    refresh_pulse_period(&s_m1);
+    refresh_pulse_period(&s_m2);
     refresh_triangle_period();
     refresh_noise_period();
     refresh_dmc_period();
@@ -354,6 +368,64 @@ static uint8_t noise_out(const Noise *n) {
     return n->const_vol ? n->vol : n->env_vol;
 }
 
+/* MMC5 pulse output: like pulse_out() but there is no sweep unit (no target-period mute). Periods below 8 are still
+ * muted to avoid the ultrasonic alias the 2A03 mutes as well. */
+static uint8_t mmc5_pulse_out(const Pulse *p) {
+    if (!p->enabled || p->length == 0 || p->timer < 8) return 0;
+    if (!DUTY_TABLE[p->duty][p->seq]) return 0;
+    return p->const_vol ? p->vol : p->env_vol;
+}
+
+/* 240 Hz MMC5 clock: envelopes and length counters of both extra pulses. */
+static void mmc5_tick_240hz(void) {
+    tick_envelope(&s_m1.env_div, &s_m1.env_vol, &s_m1.env_start, s_m1.halt, s_m1.vol);
+    tick_envelope(&s_m2.env_div, &s_m2.env_vol, &s_m2.env_start, s_m2.halt, s_m2.vol);
+    if (!s_m1.halt && s_m1.length > 0) s_m1.length--;
+    if (!s_m2.halt && s_m2.length > 0) s_m2.length--;
+}
+
+void apu_mmc5_write(uint16_t addr, uint8_t val) {
+    Pulse *p = (addr < 0x5004) ? &s_m1 : &s_m2;
+    switch (addr) {
+    case 0x5000: case 0x5004:
+        p->duty      = (val >> 6) & 3;
+        p->halt      = (val >> 5) & 1;
+        p->const_vol = (val >> 4) & 1;
+        p->vol       =  val & 0x0F;
+        break;
+    case 0x5001: case 0x5005:                       /* no sweep unit */
+        break;
+    case 0x5002: case 0x5006:
+        p->timer = (p->timer & 0x700) | val;
+        refresh_pulse_period(p);
+        break;
+    case 0x5003: case 0x5007:
+        p->timer = (p->timer & 0x00FF) | ((uint16_t)(val & 7) << 8);
+        refresh_pulse_period(p);
+        if (p->enabled) p->length = LENGTH_TABLE[val >> 3];
+        p->env_start = true;
+        p->seq       = 0;
+        break;
+    case 0x5010:                                    /* PCM mode/IRQ: no known use */
+        break;
+    case 0x5011:
+        s_mmc5_pcm = val;                           /* 8-bit direct output */
+        break;
+    case 0x5015:
+        s_m1.enabled = (val >> 0) & 1;
+        s_m2.enabled = (val >> 1) & 1;
+        if (!s_m1.enabled) s_m1.length = 0;
+        if (!s_m2.enabled) s_m2.length = 0;
+        break;
+    default:
+        break;
+    }
+}
+
+uint8_t apu_mmc5_read_status(void) {
+    return (uint8_t)((s_m1.length > 0 ? 1 : 0) | (s_m2.length > 0 ? 2 : 0));
+}
+
 /* ---- NES mixer (linear approximation) ----
  * This is the CANON, authoritative mixer. It also captures the per-channel
  * levels it used into *lv (when non-NULL) so the verified-enhancement audio
@@ -390,7 +462,12 @@ static float mix_sample_f(ApuChannelLevels *lv) {
     /* (pulse+tnd) spans ~[0,1] with the all-channels-max ceiling at ~1.0, so map
      * full-scale 1:1 to int16 — no extra gain (the prior linear path's 2x is what
      * made it run hot and clip). Returned pre-clamp so the oversampler can average. */
-    return (pulse + tnd) * 32767.0f;
+    /* MMC5 expansion: two extra pulses through the same pulse curve, plus the 8-bit PCM. */
+    float ext = 0.0f;
+    unsigned msum = (unsigned)mmc5_pulse_out(&s_m1) + (unsigned)mmc5_pulse_out(&s_m2);
+    if (msum != 0u) ext += 95.88f / (8128.0f / (float)msum + 100.0f);
+    ext += ((float)s_mmc5_pcm / 255.0f) * MMC5_PCM_GAIN;
+    return (pulse + tnd + ext) * 32767.0f;
 }
 
 static int16_t mix_sample(ApuChannelLevels *lv) {
@@ -405,6 +482,8 @@ static int16_t mix_sample(ApuChannelLevels *lv) {
 void apu_init(void) {
     memset(&s_p1,    0, sizeof(s_p1));
     memset(&s_p2,    0, sizeof(s_p2));
+    memset(&s_m1, 0, sizeof(s_m1)); memset(&s_m2, 0, sizeof(s_m2));
+    s_mmc5_pcm = 0; s_mmc5_clk = 0;
     memset(&s_tri,   0, sizeof(s_tri));
     memset(&s_noise, 0, sizeof(s_noise));
     memset(&s_dmc,   0, sizeof(s_dmc));
@@ -596,6 +675,14 @@ static void apu_step_channels(float dc) {
     s_p2.timer_acc += dc;
     { float period = s_p2.timer_period;
       while (s_p2.timer_acc >= period) { s_p2.timer_acc -= period; s_p2.seq = (s_p2.seq + 1) & 7; } }
+    s_m1.timer_acc += dc;
+    { float period = s_m1.timer_period;
+      while (s_m1.timer_acc >= period) { s_m1.timer_acc -= period; s_m1.seq = (s_m1.seq + 1) & 7; } }
+    s_m2.timer_acc += dc;
+    { float period = s_m2.timer_period;
+      while (s_m2.timer_acc >= period) { s_m2.timer_acc -= period; s_m2.seq = (s_m2.seq + 1) & 7; } }
+    s_mmc5_clk += 2;                                   /* dc is one CPU cycle: 2 half-cycles */
+    if (s_mmc5_clk >= MMC5_TICK_HALF_CYCLES) { s_mmc5_clk -= MMC5_TICK_HALF_CYCLES; mmc5_tick_240hz(); }
     s_tri.timer_acc += dc;
     { float period = s_tri.timer_period;
       while (s_tri.timer_acc >= period) { s_tri.timer_acc -= period; s_tri.seq = (s_tri.seq + 1) & 31; } }

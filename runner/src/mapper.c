@@ -97,6 +97,7 @@ void mapper_set_wram_size(uint32_t bytes) { s_mmc5_wram_size = bytes; }
 /* Savestate: MapperState (savestate.c) does not carry the MMC5, so it travels as an id-keyed extension record.
  * Savestates made before this existed simply lack the record and load as before. */
 #include "mod_savestate.h"
+#include "apu.h"
 static void mmc5_publish_windows(void);
 static void mmc5_apply_chr(void);
 static int mmc5_ss_get(uint8_t *buf, int cap) { return s_mapper_type == 5 ? mmc5_state_get(&s_mmc5, buf, cap) : 0; }
@@ -243,6 +244,7 @@ int mapper_read_ext(uint16_t addr, uint8_t *out) {
             int line = runtime_frame_scanline();
             s_mmc5.in_frame = (g_ppumask & 0x18) && line >= 21 && line < 21 + 240;
         }
+        if (addr == 0x5015) { *out = apu_mmc5_read_status(); return 1; }
         return mmc5_reg_read(&s_mmc5, addr, out);
     }
     *out = mmc5_cpu_read(&s_mmc5, addr);
@@ -256,7 +258,12 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
         if (s_trace < 0) s_trace = getenv("NESRECOMP_MMC5_TRACE") ? 1 : 0;
         if (s_trace && addr != 0x5204 && (addr < 0x5C00 || addr > 0x5FFF))
             fprintf(stderr, "[MMC5] f=%llu $%04X=%02X\n", (unsigned long long)g_frame_count, addr, val);
+        if (addr >= 0x5C00) {                       /* ExRAM in modes 0/1 is writable only while the PPU renders */
+            int line = runtime_frame_scanline();
+            s_mmc5.in_frame = (g_ppumask & 0x18) && line >= 21 && line < 21 + 240;
+        }
         mmc5_reg_write(&s_mmc5, addr, val);
+        if (addr <= 0x5015) apu_mmc5_write(addr, val);
         if ((addr >= 0x5100 && addr <= 0x5117) || addr == 0x5113) mmc5_publish_windows();
         if (addr == 0x5101 || addr == 0x5130 || (addr >= 0x5120 && addr <= 0x512B))
             mmc5_apply_chr();
@@ -830,6 +837,68 @@ int mapper_get_mirroring(void) {
         }
     }
     return s_mirroring;
+}
+
+
+/* ---- Nametable access ------------------------------------------------------------------------------------------ */
+extern uint8_t g_ppu_nt[0x1000];
+static int nt_ciram_page(int vnt) {                      /* non-MMC5: mirroring -> CIRAM page */
+    vnt &= 3;
+    switch (mapper_get_mirroring()) {
+        case 0:  return 0;             /* one-screen lower */
+        case 1:  return 1;             /* one-screen upper */
+        case 2:  return vnt & 1;       /* vertical */
+        case 3:  return vnt >> 1;      /* horizontal */
+        default: return vnt & 1;
+    }
+}
+
+static uint8_t s_mmc5_fill_nt[0x400];
+static uint8_t s_mmc5_zero_nt[0x400];
+
+const uint8_t *mapper_nt_ptr(int vnt) {
+    if (s_mapper_type != 5) return g_ppu_nt + nt_ciram_page(vnt) * 0x400;
+    switch (mmc5_nt_source(&s_mmc5, vnt & 3)) {
+    case 0:  return g_ppu_nt;
+    case 1:  return g_ppu_nt + 0x400;
+    case 2:  return s_mmc5.exram_mode < 2 ? s_mmc5.exram : s_mmc5_zero_nt;      /* Ex2/Ex3: the PPU reads $00 */
+    default:
+        memset(s_mmc5_fill_nt, s_mmc5.fill_tile, 0x3C0);
+        memset(s_mmc5_fill_nt + 0x3C0, (s_mmc5.fill_attr & 3) * 0x55, 0x40);
+        return s_mmc5_fill_nt;
+    }
+}
+
+uint8_t mapper_nt_read(int vnt, int off) { return mapper_nt_ptr(vnt)[off & 0x3FF]; }
+
+void mapper_nt_write(int vnt, int off, uint8_t val) {
+    off &= 0x3FF;
+    if (s_mapper_type != 5) { g_ppu_nt[nt_ciram_page(vnt) * 0x400 + off] = val; return; }
+    switch (mmc5_nt_source(&s_mmc5, vnt & 3)) {
+    case 0:  g_ppu_nt[off] = val; break;
+    case 1:  g_ppu_nt[0x400 + off] = val; break;
+    case 2:  if (s_mmc5.exram_mode < 2) s_mmc5.exram[off] = val; break;
+    default: break;                                                            /* fill mode: read-only */
+    }
+}
+
+/* ---- MMC5 vertical split ----------------------------------------------------------------------------------------- */
+int mapper_mmc5_split_tile(int sy, int slot, int *pal, const uint8_t **chr, int *fine_y) {
+    if (s_mapper_type != 5 || !(s_mmc5.split_ctrl & 0x80) || s_mmc5.exram_mode >= 2 || !s_mmc5.chr) return 0;
+    int t = s_mmc5.split_ctrl & 0x1F;
+    int right = (s_mmc5.split_ctrl & 0x40) != 0;
+    if (right ? (slot < t) : (slot >= t)) return 0;
+    int col = slot & 31;
+    int y = sy + s_mmc5.split_scroll;
+    y = s_mmc5.split_scroll < 240 ? y % 240 : (y & 0xFF);
+    int row = y >> 3;
+    uint8_t tile = s_mmc5.exram[(row * 32 + col) & 0x3FF];
+    uint8_t attr = s_mmc5.exram[(0x3C0 + (row >> 2) * 8 + (col >> 2)) & 0x3FF];
+    *pal = (attr >> ((((row >> 1) & 1) * 2 + ((col >> 1) & 1)) * 2)) & 3;
+    uint32_t off = ((uint32_t)s_mmc5.split_bank * 0x1000u + (uint32_t)tile * 16u) % s_mmc5.chr_size;
+    *chr = s_mmc5.chr + off;
+    *fine_y = y & 7;
+    return 1;
 }
 
 uint8_t mapper_peek_prg(uint16_t addr) {

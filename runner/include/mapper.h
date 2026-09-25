@@ -124,3 +124,16 @@ typedef struct {
 void mapper_get_chr_trace(int *out_count, int *out_idx);
 const void *mapper_get_chr_trace_buf(void);
 void mapper_get_mmc3_chr_regs(uint8_t *regs6_out, uint8_t *bank_select_out);
+
+/* ---- Nametable access through the mapper ------------------------------------------------------------------------
+ * vnt = logical nametable 0-3 ($2000/$2400/$2800/$2C00). Non-MMC5 mappers resolve it with their mirroring; MMC5
+ * ($5105) can map each slot to CIRAM page 0/1, ExRAM or the fill tile. Renderers read a 1KB view (960 tile bytes +
+ * 64 attribute bytes); $2007 reads/writes go through mapper_nt_read/mapper_nt_write. */
+const uint8_t *mapper_nt_ptr(int vnt);
+uint8_t        mapper_nt_read(int vnt, int off);
+void           mapper_nt_write(int vnt, int off, uint8_t val);
+
+/* MMC5 vertical split screen ($5200-$5202). For the BG tile fetch slot `slot` (0-33, = (x + fine X) / 8) of scanline
+ * sy: returns 1 if that tile comes from the split region. Then *pal = palette 0-3, *chr = 16 bytes of the tile's
+ * pattern (low plane, then high plane) and *fine_y = row inside the tile. */
+int mapper_mmc5_split_tile(int sy, int slot, int *pal, const uint8_t **chr, int *fine_y);
