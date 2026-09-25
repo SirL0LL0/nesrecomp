@@ -247,15 +247,38 @@ static int                  s_blk_on = 0;
 static uint8_t              s_blk_miss[BLK_UNITS * 1024];   /* interpreted instr outside the translated set */
 static uint8_t              s_blk_miss_seen_entry[BLK_UNITS * 1024];
 static uint64_t s_blk_instrs = 0, s_blk_runs = 0, s_int_known = 0, s_int_miss = 0, s_int_dyn = 0;
+static uint32_t *s_int_hist = NULL;      /* [unit<<13 | off] instructions run by the pure interpreter (NESRECOMP_INTERP_HIST=N prints the top N) */
+
+static void hist_report(void) {
+    const char *e = getenv("NESRECOMP_INTERP_HIST");
+    if (!e || !s_int_hist) return;
+    int top = atoi(e) > 0 ? atoi(e) : 30;
+    for (int k = 0; k < top; k++) {
+        uint32_t best = 0; uint32_t bi = 0;
+        for (uint32_t i = 0; i < (BLK_UNITS << 13); i++) if (s_int_hist[i] > best) { best = s_int_hist[i]; bi = i; }
+        if (!best) break;
+        fprintf(stderr, "[hist] unit %2u  off %04X  %u\n", bi >> 13, bi & 0x1FFF, best);
+        s_int_hist[bi] = 0;
+    }
+}
 
 static void blocks_report(void) {
     if (!s_blk_n) return;
+    hist_report();
     unsigned distinct = 0;
     for (int i = 0; i < BLK_UNITS * 1024; i++)
         for (int b = 0; b < 8; b++) if (s_blk_miss[i] & (1u << b)) distinct++;
     fprintf(stderr, "[blocks] translated-block instrs=%llu (runs=%llu) | interpreted: in-translated-set=%llu MISS=%llu (distinct addrs %u) RAM/WRAM=%llu\n",
             (unsigned long long)s_blk_instrs, (unsigned long long)s_blk_runs, (unsigned long long)s_int_known,
             (unsigned long long)s_int_miss, distinct, (unsigned long long)s_int_dyn);
+    {   /* where the guest instructions actually ran: NB_STEP is called by decompiled functions and by blocks alike */
+        uint64_t total = s_stats.instrs_total, interp = s_int_known + s_int_miss + s_int_dyn;
+        uint64_t dec = total > s_blk_instrs + interp ? total - s_blk_instrs - interp : 0;
+        fprintf(stderr, "[where] total=%llu | decompiled C=%llu (%.1f%%) | translated blocks=%llu (%.1f%%) | pure interpreter=%llu (%.1f%%)\n",
+                (unsigned long long)total, (unsigned long long)dec, total ? 100.0 * dec / total : 0.0,
+                (unsigned long long)s_blk_instrs, total ? 100.0 * s_blk_instrs / total : 0.0,
+                (unsigned long long)interp, total ? 100.0 * interp / total : 0.0);
+    }
     const char *mf = getenv("NESRECOMP_BLOCK_MISS_FILE");
     if (mf && *mf) {
         FILE *f = fopen(mf, "w");
@@ -293,6 +316,7 @@ void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits
             good++;
         }
     }
+    if (getenv("NESRECOMP_INTERP_HIST")) s_int_hist = (uint32_t *)calloc((size_t)BLK_UNITS << 13, sizeof(uint32_t));
     atexit(blocks_report);
     fprintf(stderr, "[blocks] %d/%d translated blocks match this ROM and are installed (%s)\n", good, n, s_blk_on ? "active" : "inactive");
 }
@@ -371,6 +395,7 @@ static void blk_note_interp(uint16_t pc, int is_entry) {
     int unit = (pc >= 0x8000) ? g_mmc5_win_bank8k[(pc - 0x8000) >> 13] : -1;
     if (unit < 0 || unit >= BLK_UNITS) { s_int_dyn++; return; }
     unsigned off = pc & 0x1FFF;
+    if (s_int_hist) s_int_hist[((unsigned)unit << 13) | off]++;
     if (s_blk_code[unit * 1024 + (off >> 3)] & (1u << (off & 7))) { s_int_known++; return; }
     s_int_miss++;
     s_blk_miss[unit * 1024 + (off >> 3)] |= (uint8_t)(1u << (off & 7));
