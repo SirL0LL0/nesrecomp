@@ -229,6 +229,9 @@ static inline uint8_t interp_rd(AddrMode am, uint8_t op1, uint8_t op2) {
 /* ---- Flag helpers (identical to generated FLAG_NZ / NZC_ADD / NZC_SUB) ---- */
 #define I_NZ(v) do { g_cpu.N = ((uint8_t)(v) >> 7) & 1; g_cpu.Z = ((uint8_t)(v) == 0) ? 1 : 0; } while (0)
 
+/* 1 = BRK behaves like hardware (vector through $FFFE) instead of ending the run. */
+int g_interp_hw_brk = 0;
+
 /* Forward decl: the generated dispatcher. */
 extern int call_by_address(uint16_t addr);
 
@@ -600,6 +603,20 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
 
             /* ---- BRK / illegal: mirror codegen (BRK hook; illegal = sized skip) ---- */
             case MN_BRK:
+                if (g_interp_hw_brk) {
+                    /* Hardware BRK: push PC+2 and P (B set), set I, vector through $FFFE.
+                     * The handler's RTI pops back to PC+2. Games with inline-data
+                     * routines can execute a stray $00 and rely on this. */
+                    uint16_t ret = (uint16_t)(ipc + 2);
+                    uint8_t p = (uint8_t)((g_cpu.N << 7) | (g_cpu.V << 6) | 0x30 |
+                                          (g_cpu.D << 3) | (g_cpu.I << 2) | (g_cpu.Z << 1) | g_cpu.C);
+                    g_ram[0x100 + g_cpu.S] = (uint8_t)(ret >> 8); g_cpu.S--;
+                    g_ram[0x100 + g_cpu.S] = (uint8_t)(ret & 0xFF); g_cpu.S--;
+                    g_ram[0x100 + g_cpu.S] = p; g_cpu.S--;
+                    g_cpu.I = 1;
+                    next = nes_read16(0xFFFE);
+                    break;
+                }
                 nes_brk_executed(ipc);
                 result = make_exit(NES_INTERP_EXIT_BRK,
                                    entry, ipc, entry_s);
