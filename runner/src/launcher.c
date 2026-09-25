@@ -19,6 +19,7 @@
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
 #  include <commdlg.h>
+#  include <io.h>
 #  pragma comment(lib, "comdlg32.lib")
 #endif
 
@@ -340,7 +341,16 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS *ep) {
 #endif
 
 int main(int argc, char *argv[]) {
+#ifdef _WIN32
+    /* The UCRT writes redirected, explicitly unbuffered stdout a character at
+     * a time. PowerShell Start-Process log redirection can stall each write,
+     * turning a few startup messages into seconds of apparent loading. Batch
+     * redirected output; the runner flushes startup and critical diagnostics.
+     * Keep interactive consoles immediate. */
+    setvbuf(stdout, NULL, _isatty(_fileno(stdout)) ? _IONBF : _IOFBF, BUFSIZ);
+#else
     setvbuf(stdout, NULL, _IONBF, 0);
+#endif
 #ifdef _WIN32
     SetUnhandledExceptionFilter(crash_handler);
     AddVectoredExceptionHandler(1, vectored_handler);

@@ -1902,6 +1902,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
             printf("[Smoke] Headless mode: running %d frames, hashing every %d\n",
                    s_smoke_frames, s_smoke_interval);
         }
+        fflush(stdout); /* publish headless startup before entering the guest */
         memset(s_framebuf, 0, VIDEO_BUF_BYTES);
         run_guest_execution();
         fprintf(stderr, "[Headless] game_run_main returned unexpectedly at frame %llu\n",
@@ -1972,11 +1973,15 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     {
         char window_title[64];
         snprintf(window_title, sizeof(window_title), "NESRecomp - %s", game_get_name());
-        Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
+        /* Exercise the real video/audio startup without taking desktop focus. */
+        const char *test_hidden = getenv("NESRECOMP_TEST_HIDDEN");
+        int hidden = test_hidden && test_hidden[0] == '1';
+        Uint32 win_flags = SDL_WINDOW_RESIZABLE |
+            (hidden ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
         /* Launcher tri-state: 1 = borderless (desktop resolution, letterboxed by
          * SDL_RenderSetLogicalSize), 2 = exclusive (real display mode change). */
-        if (g_nes_config.fullscreen == 2)      win_flags |= SDL_WINDOW_FULLSCREEN;
-        else if (g_nes_config.fullscreen == 1) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+        if (!hidden && g_nes_config.fullscreen == 2) win_flags |= SDL_WINDOW_FULLSCREEN;
+        else if (!hidden && g_nes_config.fullscreen == 1) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
         int scale = g_nes_config.window_scale < 1 ? 1 : g_nes_config.window_scale;
         s_window = SDL_CreateWindow(window_title,
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -2125,6 +2130,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     /* Don't force window on top — let the user manage window stacking */
 
     printf("[Runner] Starting main game loop...\n");
+    fflush(stdout); /* publish buffered startup as a block, not byte by byte */
     startup_timing_mark("game_loop");
 
     /* game_run_main() defaults to func_RESET() (native recompiled main loop,
