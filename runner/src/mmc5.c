@@ -110,8 +110,9 @@ int mmc5_reg_write(Mmc5 *m, uint16_t addr, uint8_t val) {
     if (addr < 0x5000 || addr > 0x5FFF) return 0;
     if (addr <= 0x501F) { m->audio_regs[addr - 0x5000] = val; return 1; }
     if (addr >= 0x5C00) {
-        if (m->exram_mode != 3) m->exram[addr - 0x5C00] = val;
-        return 1;
+        if (m->exram_mode == 2) m->exram[addr - 0x5C00] = val;                                /* Ex2: CPU RAM */
+        else if (m->exram_mode < 2) m->exram[addr - 0x5C00] = m->in_frame ? val : 0;         /* Ex0/Ex1: only while rendering */
+        return 1;                                                                            /* Ex3: read-only */
     }
     switch (addr) {
     case 0x5100: m->prg_mode = val & 3; mmc5_remap(m); break;
@@ -135,8 +136,8 @@ int mmc5_reg_write(Mmc5 *m, uint16_t addr, uint8_t val) {
     case 0x5205: m->mult_a = val; break;
     case 0x5206: m->mult_b = val; break;
     default:
-        if (addr >= 0x5120 && addr <= 0x5127) { m->chr_a[addr - 0x5120] = val; m->chr_last_set_b = 0; }
-        else if (addr >= 0x5128 && addr <= 0x512B) { m->chr_b[addr - 0x5128] = val; m->chr_last_set_b = 1; }
+        if (addr >= 0x5120 && addr <= 0x5127) { m->chr_a[addr - 0x5120] = (uint16_t)(val | ((m->chr_upper & 3) << 8)); m->chr_last_set_b = 0; }
+        else if (addr >= 0x5128 && addr <= 0x512B) { m->chr_b[addr - 0x5128] = (uint16_t)(val | ((m->chr_upper & 3) << 8)); m->chr_last_set_b = 1; }
         break;
     }
     return 1;
@@ -167,7 +168,6 @@ const uint8_t *mmc5_chr_page(const Mmc5 *m, int slot1k, int bg, int sprite16) {
     int use_b = sprite16 ? bg : m->chr_last_set_b;
     int page;                                       /* 1KB unit */
     int mode = m->chr_mode & 3;
-    int up = (m->chr_upper & 3) << 8;
     slot1k &= 7;
     if (!use_b) {
         int reg;
@@ -177,7 +177,7 @@ const uint8_t *mmc5_chr_page(const Mmc5 *m, int slot1k, int bg, int sprite16) {
         case 2:  reg = (slot1k | 1); break;
         default: reg = slot1k; break;
         }
-        int val = m->chr_a[reg] | up;
+        int val = m->chr_a[reg];
         int span = 1 << (3 - mode);                 /* 8,4,2,1 KB pages */
         page = (val * span) + (slot1k & (span - 1));
     } else {
@@ -188,7 +188,7 @@ const uint8_t *mmc5_chr_page(const Mmc5 *m, int slot1k, int bg, int sprite16) {
         case 2:         reg = (s | 1); break;
         default:        reg = s; break;
         }
-        int val = m->chr_b[reg] | up;
+        int val = m->chr_b[reg];
         int span = 1 << (3 - mode);
         int within = (mode == 0) ? (slot1k & 7) : (slot1k & (span - 1));
         page = (val * span) + within;
@@ -222,4 +222,56 @@ int mmc5_clock_scanline(Mmc5 *m) {
         return 1;
     }
     return 0;
+}
+
+/* ---- savestate ------------------------------------------------------------------------------------------ */
+#define MMC5_STATE_VER 1
+int mmc5_state_get(const Mmc5 *m, uint8_t *buf, int cap) {
+    int n = 0;
+#define PUT8(v)  do { if (n >= cap) return -1; buf[n++] = (uint8_t)(v); } while (0)
+#define PUT16(v) do { PUT8((v) & 0xFF); PUT8(((v) >> 8) & 0xFF); } while (0)
+    PUT8(MMC5_STATE_VER);
+    PUT8(m->prg_mode); PUT8(m->chr_mode); PUT8(m->ram_protect1); PUT8(m->ram_protect2);
+    PUT8(m->exram_mode); PUT8(m->nt_map); PUT8(m->fill_tile); PUT8(m->fill_attr); PUT8(m->wram_bank);
+    for (int i = 0; i < 3; i++) PUT8(m->prg_reg[i]);
+    PUT8(m->prg_last);
+    for (int i = 0; i < 8; i++) PUT16(m->chr_a[i]);
+    for (int i = 0; i < 4; i++) PUT16(m->chr_b[i]);
+    PUT8(m->chr_upper); PUT8(m->chr_last_set_b);
+    PUT8(m->split_ctrl); PUT8(m->split_scroll); PUT8(m->split_bank);
+    PUT8(m->irq_compare); PUT8(m->irq_enabled); PUT8(m->irq_pending); PUT8(m->in_frame);
+    PUT8(m->mult_a); PUT8(m->mult_b);
+    PUT16(m->line_calls); PUT16(m->scanline); PUT8(m->irq_fired);
+    for (int i = 0; i < 0x20; i++) PUT8(m->audio_regs[i]);
+    if (n + 0x400 > cap) return -1;
+    memcpy(buf + n, m->exram, 0x400);
+    n += 0x400;
+#undef PUT8
+#undef PUT16
+    return n;
+}
+
+int mmc5_state_set(Mmc5 *m, const uint8_t *buf, int len) {
+    int n = 0;
+#define GET8()  (n < len ? buf[n++] : 0)
+#define GET16() (n + 1 < len ? (n += 2, (uint16_t)(buf[n - 2] | (buf[n - 1] << 8))) : (n = len, 0))
+    if (len < 1 || buf[0] != MMC5_STATE_VER) return 0;
+    n = 1;
+    m->prg_mode = GET8() & 3; m->chr_mode = GET8() & 3; m->ram_protect1 = GET8(); m->ram_protect2 = GET8();
+    m->exram_mode = GET8() & 3; m->nt_map = GET8(); m->fill_tile = GET8(); m->fill_attr = GET8(); m->wram_bank = GET8() & 7;
+    for (int i = 0; i < 3; i++) m->prg_reg[i] = GET8();
+    m->prg_last = GET8();
+    for (int i = 0; i < 8; i++) m->chr_a[i] = GET16();
+    for (int i = 0; i < 4; i++) m->chr_b[i] = GET16();
+    m->chr_upper = GET8() & 3; m->chr_last_set_b = GET8();
+    m->split_ctrl = GET8(); m->split_scroll = GET8(); m->split_bank = GET8();
+    m->irq_compare = GET8(); m->irq_enabled = GET8(); m->irq_pending = GET8(); m->in_frame = GET8();
+    m->mult_a = GET8(); m->mult_b = GET8();
+    m->line_calls = GET16(); m->scanline = GET16(); m->irq_fired = GET8();
+    for (int i = 0; i < 0x20; i++) m->audio_regs[i] = GET8();
+    if (n + 0x400 <= len) memcpy(m->exram, buf + n, 0x400);
+#undef GET8
+#undef GET16
+    mmc5_remap(m);
+    return 1;
 }

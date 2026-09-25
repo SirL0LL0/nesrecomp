@@ -93,6 +93,19 @@ extern int      runtime_frame_scanline(void);
 extern uint8_t  g_chr_ram[0x2000];
 
 void mapper_set_wram_size(uint32_t bytes) { s_mmc5_wram_size = bytes; }
+
+/* Savestate: MapperState (savestate.c) does not carry the MMC5, so it travels as an id-keyed extension record.
+ * Savestates made before this existed simply lack the record and load as before. */
+#include "mod_savestate.h"
+static void mmc5_publish_windows(void);
+static void mmc5_apply_chr(void);
+static int mmc5_ss_get(uint8_t *buf, int cap) { return s_mapper_type == 5 ? mmc5_state_get(&s_mmc5, buf, cap) : 0; }
+static int mmc5_ss_set(const uint8_t *buf, int len) {
+    if (s_mapper_type != 5 || !mmc5_state_set(&s_mmc5, buf, len)) return 0;
+    mmc5_publish_windows();
+    mmc5_apply_chr();
+    return 1;
+}
 void mapper_gg_clear(void) { mmc5_gg_clear(&s_mmc5); s_mmc5_bufs_dirty = 1; }
 int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp) {
     s_mmc5_bufs_dirty = 1;
@@ -504,8 +517,14 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
          * larger chips (not seen yet) use a private, non-persistent buffer. */
         static uint8_t s_big_wram[MMC5_MAX_WRAM];
         uint8_t *wbuf = s_mmc5_wram_size <= 0x2000 ? g_sram_ptr() : s_big_wram;
+        {   /* NESRECOMP_MMC5_WRAM=<KB>: some MMC5 games use up to 64KB of PRG-RAM that the iNES header does not declare
+             * (Uncharted Waters swaps RAM pages 0 and 4). A private, non-persistent buffer is used above 8KB. */
+            const char *w = getenv("NESRECOMP_MMC5_WRAM");
+            if (w && atoi(w) > 8) { s_mmc5_wram_size = (uint32_t)atoi(w) * 1024u; if (s_mmc5_wram_size > MMC5_MAX_WRAM) s_mmc5_wram_size = MMC5_MAX_WRAM; wbuf = s_big_wram; }
+        }
         mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, s_mmc5_wram_size, wbuf);
         mmc5_publish_windows();
+        nes_mod_register_savestate_hook("nesrecomp.mmc5", mmc5_ss_get, mmc5_ss_set);
     }
 
     /* GxROM: power-on selects the last 32KB bank (vectors live there).

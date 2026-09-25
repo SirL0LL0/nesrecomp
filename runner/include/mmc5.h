@@ -8,6 +8,8 @@
  *
  * Not modelled yet: expansion audio ($5000-$5015), vertical split ($5200-$5202).
  * The registers are stored so reads/writes are harmless.
+ * Behaviour follows the nesdev-style MMC5 reference (mapper 005 notes): CHR regs are 10 bits with the high bits
+ * latched at write time; ExRAM in modes 0/1 is writable only while rendering (otherwise $00 is stored).
  */
 #include <stdint.h>
 
@@ -27,7 +29,7 @@ typedef struct Mmc5 {
     uint8_t wram_bank;                 /* $5113 */
     uint8_t prg_reg[3];                /* $5114-$5116; $5117 in prg_last */
     uint8_t prg_last;
-    uint8_t chr_a[8], chr_b[4];        /* $5120-$5127, $5128-$512B */
+    uint16_t chr_a[8], chr_b[4];       /* $5120-$5127, $5128-$512B: 10 bits, the high 2 latched from $5130 at write time */
     uint8_t chr_upper;                 /* $5130 */
     uint8_t chr_last_set_b;            /* last CHR register group written */
     uint8_t split_ctrl, split_scroll, split_bank;
@@ -65,6 +67,10 @@ void    mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val);
 /* Game Genie patches (up to 4). mmc5_gg_add returns 1 on success. */
 void mmc5_gg_clear(Mmc5 *m);
 int  mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp);
+
+/* Serialize / restore the mapper registers and ExRAM (no pointers): used by the savestate hook. Returns bytes / 1. */
+int  mmc5_state_get(const Mmc5 *m, uint8_t *buf, int cap);
+int  mmc5_state_set(Mmc5 *m, const uint8_t *buf, int len);
 
 /* ROM 8KB unit behind window (0-3 = $8000/$A000/$C000/$E000), -1 if WRAM. */
 int mmc5_window_bank8k(const Mmc5 *m, int win);

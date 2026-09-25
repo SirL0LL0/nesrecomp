@@ -172,6 +172,41 @@ static void test_scanline_irq(void) {
     w(0x5203, 1); run_frame(1, 1);
 }
 
+
+/* From the MMC5 reference: CHR regs are 10 bits, the high 2 copied from $5130 AT WRITE TIME. */
+static void test_chr_high_bits_latched(void) {
+    setup();
+    w(0x5101, 3);                                      /* 1KB mode */
+    w(0x5130, 0x00); w(0x5127, 0x20);                  /* $5127 = $020 */
+    w(0x5130, 0x02); w(0x5123, 0x41);                  /* $5123 = $241; $5127 still $020, not $220 */
+    assert(mmc5_chr_page(&m, 7, 0, 1)[0] == (uint8_t)0x20);   /* A slot 7 = $5127 */
+    assert(mmc5_chr_page(&m, 3, 0, 1)[0] == (uint8_t)(0x241 % CHR_KB));
+}
+
+/* ExRAM: Ex2 = CPU RAM, Ex3 = read only, Ex0/1 writable only while rendering (else $00 is stored). */
+static void test_exram_rules(void) {
+    setup();
+    w(0x5104, 2); w(0x5C00, 0x5A);  assert(r(0x5C00) == 0x5A);
+    w(0x5104, 3); w(0x5C00, 0x11);  assert(r(0x5C00) == 0x5A);          /* Ex3: write ignored */
+    w(0x5104, 1); m.in_frame = 0; w(0x5C01, 0x77);
+    w(0x5104, 2); assert(r(0x5C01) == 0x00);                            /* vblank write into Ex1 stores 0 */
+    w(0x5104, 1); m.in_frame = 1; w(0x5C01, 0x77);
+    w(0x5104, 2); assert(r(0x5C01) == 0x77);                            /* while rendering it sticks */
+}
+
+static void test_state_roundtrip(void) {
+    setup();
+    w(0x5100, 2); w(0x5115, 0x82); w(0x5116, 0x85); w(0x5130, 1); w(0x5120, 9);
+    w(0x5104, 2); w(0x5C10, 0xAB); w(0x5203, 0x30); w(0x5204, 0x80);
+    uint8_t buf[2048]; int n = mmc5_state_get(&m, buf, sizeof buf);
+    assert(n > 0);
+    setup();                                                             /* wipe */
+    assert(mmc5_state_set(&m, buf, n));
+    assert(m.prg_mode == 2 && m.chr_a[0] == (9 | 0x100) && m.irq_compare == 0x30 && m.irq_enabled);
+    assert(r(0x5C10) == 0xAB);
+    assert(mmc5_cpu_read(&m, 0x8000) == 2 && mmc5_cpu_read(&m, 0xC000) == 5);   /* 16KB window pair 2,3 ... */
+}
+
 int main(void) {
     test_power_on();
     test_prg_mode3();
@@ -182,6 +217,9 @@ int main(void) {
     test_chr_sets_8x16();
     test_multiplier_and_exram();
     test_scanline_irq();
+    test_chr_high_bits_latched();
+    test_exram_rules();
+    test_state_roundtrip();
     puts("mmc5_selftest: all tests passed");
     return 0;
 }
