@@ -344,8 +344,24 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
             if (s_pt == 1 && s_pt_lines < 400000) {
                 for (int q = 0; q < s_pt_n; q++)
                     if (s_pt_list[q] == ipc) {
-                        fprintf(stderr, "[PC] f=%llu pc=%04X A=%02X X=%02X Y=%02X S=%02X\n",
-                                (unsigned long long)g_frame_count, ipc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S);
+                        uint16_t ret = (uint16_t)((g_ram[0x100 + (uint8_t)(g_cpu.S + 1)] | (g_ram[0x100 + (uint8_t)(g_cpu.S + 2)] << 8)) + 1);
+                        fprintf(stderr, "[PC] f=%llu pc=%04X A=%02X X=%02X Y=%02X S=%02X BE=%02X%02X ret=%04X w=%d,%d,%d,%d\n",
+                                (unsigned long long)g_frame_count, ipc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S,
+                                g_ram[0xBF], g_ram[0xBE], ret,
+                                g_mmc5_win_bank8k[0], g_mmc5_win_bank8k[1], g_mmc5_win_bank8k[2], g_mmc5_win_bank8k[3]);
+                        {   /* NESRECOMP_PC_TRACE_ZP="A4,A5,A6,A7": append those zero-page bytes */
+                            static const char *zp = (const char *)-1;
+                            if (zp == (const char *)-1) zp = getenv("NESRECOMP_PC_TRACE_ZP");
+                            if (zp) {
+                                fprintf(stderr, "[ZP]");
+                                for (const char *z = zp; *z; ) {
+                                    unsigned a = (unsigned)strtoul(z, (char **)&z, 16);
+                                    fprintf(stderr, " %02X=%02X", a, g_ram[a & 0x7FF]);
+                                    if (*z == ',') z++; else break;
+                                }
+                                fprintf(stderr, "\n");
+                            }
+                        }
                         s_pt_lines++;
                     }
             }
