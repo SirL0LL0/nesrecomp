@@ -42,6 +42,12 @@ int main(void) {
     Uint8 keys[SDL_NUM_SCANCODES]={0};keys[SDL_SCANCODE_J]=1;
     CHECK(keybinds_read_player(keys,3)==0x80);
     CHECK(keybinds_read_player(keys,1)==0 && keybinds_read_player(keys,2)==0 && keybinds_read_player(keys,4)==0);
+#ifdef __linux__
+    CHECK(setenv("APPIMAGE", "./test-game.AppImage", 1)==0);
+    keybinds_init("/nonexistent-appimage-mount/usr/bin/Game");
+    CHECK(keybinds_read_player(keys,3)==0x80);
+    CHECK(unsetenv("APPIMAGE")==0);
+#endif
     config_set_defaults(&g_nes_config);
     CHECK(g_nes_config.player_src[2]==2 && g_nes_config.deadzone[3]==30);
     g_nes_config.player_src[3]=1;g_nes_config.deadzone[2]=45;

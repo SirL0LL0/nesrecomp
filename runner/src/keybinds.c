@@ -188,6 +188,12 @@ static void mask_to_names(uint32_t mask, char *out, size_t n) {
 static char s_ini_path[512] = {0};
 
 static void derive_ini_path(const char *exe_path) {
+#ifdef __linux__
+    /* Match the launcher's persistent AppImage directory, not the temporary
+     * read-only mount containing argv[0]. NULL still means the caller's cwd. */
+    const char *appimage = getenv("APPIMAGE");
+    if (exe_path && appimage && appimage[0]) exe_path = appimage;
+#endif
     if (!exe_path) {
         strcpy(s_ini_path, "keybinds.ini");
         return;
