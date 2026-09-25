@@ -135,6 +135,9 @@ static void mapper_cov_flush(void) {
     char p2[300]; snprintf(p2, sizeof p2, "%s.ram", s_cov_path);
     f = fopen(p2, "wb");
     if (f) { fwrite(s_cov_ram, 1, sizeof s_cov_ram, f); fclose(f); }
+    snprintf(p2, sizeof p2, "%s.wramw", s_cov_path);
+    f = fopen(p2, "wb");
+    if (f) { extern uint8_t mapper_wramw_snapshot(int i); for (int i = 0; i < 0x2000; i++) fputc(mapper_wramw_snapshot(i), f); fclose(f); }
     snprintf(p2, sizeof p2, "%s.win", s_cov_path);
     f = fopen(p2, "wb");
     if (f) { fwrite(s_cov_win, 1, sizeof s_cov_win, f); fclose(f); }
@@ -200,6 +203,10 @@ static void mmc5_rebuild_bufs(void) {
     s_mmc5_bufs_dirty = 0;
 }
 
+static uint8_t s_wramw[0x2000];      /* $6000-$7FFF: 1 = written at least once (dumped as <cov>.wramw) */
+void mapper_wram_write_mark(uint16_t addr) { s_wramw[addr - 0x6000] = 1; }
+uint8_t mapper_wramw_snapshot(int i) { return s_wramw[i & 0x1FFF]; }
+
 int mapper_read_ext(uint16_t addr, uint8_t *out) {
     if (s_mapper_type != 5 || addr < 0x5000) return 0;
     if (addr < 0x6000) {
@@ -229,6 +236,7 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
     } else {
         mmc5_cpu_write(&s_mmc5, addr, val);
         s_mmc5_bufs_dirty = 1;
+        if (addr < 0x8000) mapper_wram_write_mark(addr);
     }
     return 1;
 }

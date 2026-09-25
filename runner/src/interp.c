@@ -332,6 +332,25 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
         /* NMI is sampled between instructions (mirrors codegen's per-insn call). */
         nes_cpu_instruction_boundary(ipc, e->cycles);
         {
+            /* NESRECOMP_PC_TRACE="D094,C21D": log frame + registers whenever one of these PCs executes */
+            static int s_pt = -1; static uint16_t s_pt_list[16]; static int s_pt_n; static long s_pt_lines;
+            if (s_pt < 0) {
+                const char *e = getenv("NESRECOMP_PC_TRACE"); s_pt = 0;
+                for (const char *p = e; p && *p && s_pt_n < 16; ) {
+                    unsigned v = (unsigned)strtoul(p, (char **)&p, 16); s_pt_list[s_pt_n++] = (uint16_t)v; s_pt = 1;
+                    if (*p == ',') p++; else break;
+                }
+            }
+            if (s_pt == 1 && s_pt_lines < 400000) {
+                for (int q = 0; q < s_pt_n; q++)
+                    if (s_pt_list[q] == ipc) {
+                        fprintf(stderr, "[PC] f=%llu pc=%04X A=%02X X=%02X Y=%02X S=%02X\n",
+                                (unsigned long long)g_frame_count, ipc, g_cpu.A, g_cpu.X, g_cpu.Y, g_cpu.S);
+                        s_pt_lines++;
+                    }
+            }
+        }
+        {
             static uint16_t s_seq; static int s_seq_ok;   /* arrival is a "target" unless sequential */
             mapper_cov_mark(ipc, e->size, !(s_seq_ok && ipc == s_seq));
             s_seq = (uint16_t)(ipc + e->size); s_seq_ok = 1;
