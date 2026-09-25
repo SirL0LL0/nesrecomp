@@ -331,6 +331,11 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
 
         /* NMI is sampled between instructions (mirrors codegen's per-insn call). */
         nes_cpu_instruction_boundary(ipc, e->cycles);
+        {
+            static uint16_t s_seq; static int s_seq_ok;   /* arrival is a "target" unless sequential */
+            mapper_cov_mark(ipc, e->size, !(s_seq_ok && ipc == s_seq));
+            s_seq = (uint16_t)(ipc + e->size); s_seq_ok = 1;
+        }
         s_stats.instrs_total++;
         s_stats.instrs_this_frame++;
         if (this_run < UINT32_MAX) this_run++;

@@ -116,6 +116,55 @@ const uint8_t *mapper_bg_chr(void) {
     return (s_mapper_type == 5 && (g_ppuctrl & 0x20)) ? s_mmc5_chr_bg : g_chr_ram;
 }
 
+/* ---- Executed-code coverage (MMC5, for disassembly) ----
+ * NESRECOMP_COV_FILE=path : every executed instruction marks its ROM bytes in a PRG-sized
+ * bitmap (bit0 = opcode byte, bit1 = operand byte, bit2 = control-flow target/entry seen).
+ * Instructions running from WRAM or RAM are logged separately (address list) in <path>.ram.
+ * The file is rewritten every 600 frames and at exit. */
+static uint8_t *s_cov;            /* prg size */
+static uint32_t s_cov_size;
+static char s_cov_path[260];
+static uint8_t s_cov_ram[0x10000];   /* 1 = executed from CPU RAM/WRAM at this address */
+static uint8_t s_cov_win[256];       /* per 8K unit: bitmask of CPU windows ($8000/$A000/$C000/$E000) it ran in */
+static int s_cov_state = -1;
+
+static void mapper_cov_flush(void) {
+    if (!s_cov) return;
+    FILE *f = fopen(s_cov_path, "wb");
+    if (f) { fwrite(s_cov, 1, s_cov_size, f); fclose(f); }
+    char p2[300]; snprintf(p2, sizeof p2, "%s.ram", s_cov_path);
+    f = fopen(p2, "wb");
+    if (f) { fwrite(s_cov_ram, 1, sizeof s_cov_ram, f); fclose(f); }
+    snprintf(p2, sizeof p2, "%s.win", s_cov_path);
+    f = fopen(p2, "wb");
+    if (f) { fwrite(s_cov_win, 1, sizeof s_cov_win, f); fclose(f); }
+}
+
+void mapper_cov_mark(uint16_t pc, int size, int is_target) {
+    if (s_cov_state < 0) {
+        const char *e = getenv("NESRECOMP_COV_FILE");
+        s_cov_state = (e && *e && s_mapper_type == 5) ? 1 : 0;
+        if (s_cov_state) {
+            snprintf(s_cov_path, sizeof s_cov_path, "%s", e);
+            s_cov_size = s_mmc5.prg_size;
+            s_cov = (uint8_t *)calloc(1, s_cov_size);
+            atexit(mapper_cov_flush);
+        }
+    }
+    if (s_cov_state != 1) return;
+    if (pc < 0x8000) { s_cov_ram[pc] = 1; return; }
+    int unit = g_mmc5_win_bank8k[(pc - 0x8000) >> 13];
+    if (unit < 0) { s_cov_ram[pc] = 1; return; }      /* WRAM window */
+    uint32_t off = ((uint32_t)unit << 13) | (pc & 0x1FFF);
+    if (off >= s_cov_size) return;
+    /* same bits as tools/mesen_justbreed_trace.lua: bit0 opcode, bit1 entry; plus bit2 operand byte */
+    s_cov[off] |= 0x01 | (is_target ? 0x02 : 0);
+    for (int i = 1; i < size && off + i < s_cov_size; i++) s_cov[off + i] |= 0x04;
+    s_cov_win[unit] |= (uint8_t)(1u << ((pc - 0x8000) >> 13));
+    static unsigned long s_n;
+    if ((++s_n & 0x3FFFFF) == 0) mapper_cov_flush();
+}
+
 const uint8_t *mapper_get_exram(void) { return s_mapper_type == 5 ? s_mmc5.exram : NULL; }
 const uint8_t *mapper_get_chr_rom(uint32_t *size) {
     if (size) *size = s_mapper_type == 5 ? s_mmc5.chr_size : 0;

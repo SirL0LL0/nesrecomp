@@ -21,6 +21,7 @@ void mapper_init_chr(const uint8_t *chr_data, int chr_banks);
 int  mapper_read_ext(uint16_t addr, uint8_t *out);
 int  mapper_write_ext(uint16_t addr, uint8_t val);
 const uint8_t *mapper_bg_chr(void);
+void mapper_cov_mark(uint16_t pc, int size, int is_target);   /* NESRECOMP_COV_FILE coverage recorder */
 const uint8_t *mapper_get_exram(void);                      /* 1KB ExRAM (NULL if not MMC5) */
 const uint8_t *mapper_get_chr_rom(uint32_t *size);          /* whole CHR ROM (MMC5) */
 int  mapper_exgrafix_bg(int tile_index, int tile_id, int row,
