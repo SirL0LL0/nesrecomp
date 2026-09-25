@@ -1,4 +1,4 @@
-#include "mapper.h"
+﻿#include "mapper.h"
 
 #undef NDEBUG
 #include <assert.h>
@@ -8,6 +8,8 @@
 uint64_t g_frame_count = 0;
 const char *g_last_recomp_func = NULL;
 uint8_t g_chr_ram[0x2000];
+uint8_t g_sram[0x2000];
+void save_ram_mark_dirty(void) {}
 uint8_t g_ppuctrl = 0;
 uint8_t g_ppumask = 0x18;
 static int s_test_line = 100;

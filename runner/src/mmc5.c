@@ -4,8 +4,9 @@
 static void mmc5_remap(Mmc5 *m);
 
 void mmc5_init(Mmc5 *m, const uint8_t *prg, uint32_t prg_size,
-               const uint8_t *chr, uint32_t chr_size, uint32_t wram_size) {
+               const uint8_t *chr, uint32_t chr_size, uint32_t wram_size, uint8_t *wram_buf) {
     memset(m, 0, sizeof(*m));
+    m->wram = wram_buf;
     m->prg = prg; m->prg_size = prg_size;
     m->chr = chr; m->chr_size = chr_size;
     if (wram_size == 0 || wram_size > MMC5_MAX_WRAM) wram_size = 0x2000;

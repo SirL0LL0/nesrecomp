@@ -84,6 +84,9 @@ static uint8_t  s_mmc5_low[0x4000];      /* $8000-$BFFF snapshot for legacy read
 static uint8_t  s_mmc5_high[0x4000];     /* $C000-$FFFF snapshot */
 static int      s_mmc5_bufs_dirty = 1;
 int             g_mmc5_win_bank8k[4] = {0, 0, 0, 0}; /* -1 = WRAM */
+extern uint8_t  g_sram[0x2000];
+static uint8_t *g_sram_ptr(void) { return g_sram; }
+extern void save_ram_mark_dirty(void);
 extern uint8_t  g_ppuctrl;
 extern uint8_t  g_ppumask;
 extern int      runtime_frame_scanline(void);
@@ -234,8 +237,10 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
         if (addr == 0x5101 || addr == 0x5130 || (addr >= 0x5120 && addr <= 0x512B))
             mmc5_apply_chr();
     } else {
+        uint8_t old = mmc5_cpu_read(&s_mmc5, addr);
         mmc5_cpu_write(&s_mmc5, addr, val);
         s_mmc5_bufs_dirty = 1;
+        if (mmc5_cpu_read(&s_mmc5, addr) != old) save_ram_mark_dirty();
         if (addr < 0x8000) mapper_wram_write_mark(addr);
     }
     return 1;
@@ -484,7 +489,11 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
     }
 
     if (mapper_type == 5) {
-        mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, s_mmc5_wram_size);
+        /* WRAM <= 8KB lives in g_sram so the runner's battery-save layer (saves/<title>.srm) persists it;
+         * larger chips (not seen yet) use a private, non-persistent buffer. */
+        static uint8_t s_big_wram[MMC5_MAX_WRAM];
+        uint8_t *wbuf = s_mmc5_wram_size <= 0x2000 ? g_sram_ptr() : s_big_wram;
+        mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, s_mmc5_wram_size, wbuf);
         mmc5_publish_windows();
     }
 
@@ -641,7 +650,11 @@ void mapper_write(uint16_t addr, uint8_t val) {
 
         case 5:
             /* MMC5: $8000-$DFFF can be WRAM; ROM windows ignore writes. */
-            mmc5_cpu_write(&s_mmc5, addr, val);
+            {
+                uint8_t old = mmc5_cpu_read(&s_mmc5, addr);
+                mmc5_cpu_write(&s_mmc5, addr, val);
+                if (mmc5_cpu_read(&s_mmc5, addr) != old) save_ram_mark_dirty();
+            }
             s_mmc5_bufs_dirty = 1;
             return;
 

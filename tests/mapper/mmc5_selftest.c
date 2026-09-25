@@ -1,10 +1,11 @@
-#include "mmc5.h"
+﻿#include "mmc5.h"
 
 #undef NDEBUG
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define PRG_UNITS 64                    /* 512KB, like Just Breed */
 #define CHR_KB 256
@@ -22,7 +23,9 @@ static void setup(void) {
         prg[u * 0x2000 + 0x1FFF] = (uint8_t)(0x80 + u);
     }
     for (int p = 0; p < CHR_KB; p++) chr[p * 1024] = (uint8_t)p;
-    mmc5_init(&m, prg, sizeof prg, chr, sizeof chr, 0x2000);
+    static uint8_t wram_buf[0x2000];
+    memset(wram_buf, 0, sizeof wram_buf);
+    mmc5_init(&m, prg, sizeof prg, chr, sizeof chr, 0x2000, wram_buf);
 }
 
 static void test_power_on(void) {

@@ -18,7 +18,7 @@ typedef struct Mmc5 {
     const uint8_t *chr;      /* CHR ROM, chr_size bytes (NULL/0 = CHR RAM) */
     uint32_t prg_size, chr_size;
     uint32_t wram_size;      /* power of two, <= MMC5_MAX_WRAM */
-    uint8_t  wram[MMC5_MAX_WRAM];
+    uint8_t *wram;           /* caller-owned buffer of wram_size bytes (g_sram => battery persistence) */
     uint8_t  exram[0x400];
 
     uint8_t prg_mode, chr_mode;
@@ -44,8 +44,9 @@ typedef struct Mmc5 {
     int wram6000_off;
 } Mmc5;
 
+/* wram_buf must hold wram_size bytes (rounded down to a power of two); its content is left untouched. */
 void mmc5_init(Mmc5 *m, const uint8_t *prg, uint32_t prg_size,
-               const uint8_t *chr, uint32_t chr_size, uint32_t wram_size);
+               const uint8_t *chr, uint32_t chr_size, uint32_t wram_size, uint8_t *wram_buf);
 
 /* $5000-$5FFF register/ExRAM access. Returns 1 if the address was handled. */
 int  mmc5_reg_read(Mmc5 *m, uint16_t addr, uint8_t *out);
