@@ -116,6 +116,12 @@ const uint8_t *mapper_bg_chr(void) {
     return (s_mapper_type == 5 && (g_ppuctrl & 0x20)) ? s_mmc5_chr_bg : g_chr_ram;
 }
 
+const uint8_t *mapper_get_exram(void) { return s_mapper_type == 5 ? s_mmc5.exram : NULL; }
+const uint8_t *mapper_get_chr_rom(uint32_t *size) {
+    if (size) *size = s_mapper_type == 5 ? s_mmc5.chr_size : 0;
+    return s_mapper_type == 5 ? s_mmc5.chr : NULL;
+}
+
 /* MMC5 ExGrafix (ExRAM mode 1): each BG tile has its own 4KB CHR bank and
  * palette from ExRAM[tile_index]. Returns 1 and fills lo/hi/pal when active. */
 int mapper_exgrafix_bg(int tile_index, int tile_id, int row,
