@@ -1398,6 +1398,30 @@ static uint8_t s_open_bus = 0;
  * by game logic). */
 static uint8_t s_ppu_io_latch = 0;
 
+/* Reverse-engineering aid (MMC5): NESRECOMP_PRG_WATCH="lo:hi,file" (hex ROM offsets) logs
+ * every data read (not instruction fetches) of that PRG range as
+ * "frame pc addr rom_offset value". Reads through WRAM-mapped windows are ignored. */
+static void mmc5_prg_watch(uint16_t addr) {
+    static int s_pw = -1; static uint32_t s_pw_lo, s_pw_hi; static FILE *s_pw_f; static long s_pw_n;
+    if (s_pw < 0) {
+        const char *e = getenv("NESRECOMP_PRG_WATCH");
+        unsigned lo = 0, hi = 0; char path[260] = "";
+        s_pw = (e && sscanf(e, "%x:%x,%259s", &lo, &hi, path) >= 2) ? 1 : 0;
+        if (s_pw) { s_pw_lo = lo; s_pw_hi = hi; s_pw_f = path[0] ? fopen(path, "w") : stderr; }
+    }
+    if (s_pw != 1 || s_pw_n >= 5000000) return;
+    static long s_pw_min_frame = -1;
+    if (s_pw_min_frame < 0) { const char *m = getenv("NESRECOMP_PRG_WATCH_FRAME"); s_pw_min_frame = m ? atol(m) : 0; }
+    if ((long)g_frame_count < s_pw_min_frame) return;
+    int unit = g_mmc5_win_bank8k[(addr - 0x8000) >> 13];
+    if (unit < 0) return;
+    uint32_t off = ((uint32_t)unit << 13) | (addr & 0x1FFF);
+    if (off < s_pw_lo || off > s_pw_hi) return;
+    fprintf(s_pw_f, "%llu %04X %04X %05X %02X\n", (unsigned long long)g_frame_count,
+            s_guest_pc, addr, off, mapper_peek_prg(addr));
+    s_pw_n++;
+}
+
 static uint8_t nes_read_inner(uint16_t addr) {
     bus_tick();
     if (addr <= 0x1FFF) {
@@ -1484,6 +1508,7 @@ static uint8_t nes_read_inner(uint16_t addr) {
     }
     if (addr >= 0x5000 && mapper_get_type() == 5) {
         uint8_t v;
+        if (addr >= 0x8000) mmc5_prg_watch(addr);
         return mapper_read_ext(addr, &v) ? v : s_open_bus;
     }
     if (addr >= 0x6000 && addr <= 0x7FFF) {
