@@ -406,6 +406,8 @@ static bool game_config_load_toml(GameConfig *cfg, const char *path) {
         int idx = cfg->mod_function_hook_count++;
         cfg->mod_function_hooks[idx].bank = toml_int_or(t, "bank", -1);
         cfg->mod_function_hooks[idx].addr = toml_hex(t, "addr");
+        toml_datum_t internal = toml_bool_in(t, "include_internal");
+        cfg->mod_function_hook_internal[idx] = internal.ok && internal.u.b;
     }
 
     /* [[data_region]] */

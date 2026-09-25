@@ -10,7 +10,7 @@
 
 #include <string.h>
 
-#define NES_MOD_MAX_FUNCTION_HOOKS 32
+#define NES_MOD_MAX_FUNCTION_HOOKS 128
 
 typedef struct {
     const char                 *id;

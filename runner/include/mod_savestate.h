@@ -40,6 +40,12 @@ typedef int (*NESModSavestateGet)(uint8_t *buf, int cap);
  */
 typedef int (*NESModSavestateSet)(const uint8_t *buf, int len);
 
+/* Optional, pure preflight. Called BEFORE any CPU/RAM/PPU mutation; NULL/0
+ * means this save has no record for the mod. Return 0 to reject the load. */
+typedef int (*NESModSavestateValidate)(const uint8_t *buf, int len);
+int nes_mod_register_savestate_validator(const char *id, NESModSavestateValidate validate);
+NESModSavestateValidate nes_mod_savestate_hook_validate_at(int index);
+
 /*
  * Register a mod's savestate get/set pair under a stable id. Call before
  * main() alongside the other plugin registrations. Re-registering the same

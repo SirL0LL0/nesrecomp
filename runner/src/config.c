@@ -2,6 +2,7 @@
  * config.c — config.ini load/save (see config.h).
  */
 #include "config.h"
+#include "logical_input.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -53,10 +54,11 @@ NesConfig g_nes_config = {
     /*window_scale*/ 3, /*fullscreen*/ 0, /*integer_scale*/ 1, /*linear_filter*/ 0,
     /*renderer*/ 0, /*widescreen*/ 0,
     /*volume*/ 100,
-    /*player_src*/ { 1, 2 }, /*deadzone*/ { 30, 30 },
+    /*player_src*/ { 1, 2, 2, 2 }, /*deadzone*/ { 30, 30, 30, 30 },
     /*skip_launcher*/ 0,
     /*netplay*/ "Player", "ws://netplay.technicallycomputers.ca:8765",
     /*hdpack_enabled*/ 1, /*hdpack_dir*/ "",  /* on by default; loads <exe>/hdpack if present */
+    {{0}}, {-1, -1, -1, -1},
 };
 
 void config_set_defaults(NesConfig *c) {
@@ -64,10 +66,11 @@ void config_set_defaults(NesConfig *c) {
         3, 0, 1, 0,
         0, 0,
         100,
-        { 1, 2 }, { 30, 30 },
+        { 1, 2, 2, 2 }, { 30, 30, 30, 30 },
         0,
         "Player", "ws://netplay.technicallycomputers.ca:8765",
         1, "",
+        {{0}}, {-1, -1, -1, -1},
     };
     if (c) *c = d;
 }
@@ -106,6 +109,12 @@ void config_load(const char *path) {
         char *key = trim(s);
         char *valstr = trim(eq + 1);
         int   val = atoi(valstr);
+        if (strlen(key) == 13 && !strncmp(key, "Player", 6) &&
+            key[6] >= '1' && key[6] < '1' + NESRECOMP_INPUT_SEATS &&
+            !strcmp(key+7, "Device")) {
+            snprintf(g_nes_config.player_gamepad_guid[key[6]-'1'], 40, "%s", valstr);
+            continue;
+        }
         if      (!strcmp(key, "WindowScale"))   g_nes_config.window_scale  = clampi(val, 1, 8);
         else if (!strcmp(key, "Fullscreen"))
             /* Tri-state (launcher vocabulary): 0 off, 1 borderless, 2 exclusive. */
@@ -117,6 +126,10 @@ void config_load(const char *path) {
         else if (!strcmp(key, "Volume"))        g_nes_config.volume        = clampi(val, 0, 100);
         else if (!strcmp(key, "Player1Source")) g_nes_config.player_src[0] = clampi(val, 0, 2);
         else if (!strcmp(key, "Player2Source")) g_nes_config.player_src[1] = clampi(val, 0, 2);
+        else if (!strcmp(key, "Player3Source")) g_nes_config.player_src[2] = clampi(val, 0, 2);
+        else if (!strcmp(key, "Player4Source")) g_nes_config.player_src[3] = clampi(val, 0, 2);
+        else if (!strcmp(key, "Player3Deadzone")) g_nes_config.deadzone[2] = clampi(val, 0, 100);
+        else if (!strcmp(key, "Player4Deadzone")) g_nes_config.deadzone[3] = clampi(val, 0, 100);
         else if (!strcmp(key, "Player1Deadzone")) g_nes_config.deadzone[0] = clampi(val, 0, 100);
         else if (!strcmp(key, "Player2Deadzone")) g_nes_config.deadzone[1] = clampi(val, 0, 100);
         else if (!strcmp(key, "SkipLauncher"))  g_nes_config.skip_launcher = val ? 1 : 0;
@@ -131,7 +144,7 @@ void config_load(const char *path) {
     fclose(f);
     /* Player 2 no longer has a second keyboard layout. Treat legacy keyboard
      * selections as disabled; P2 is assigned explicitly to a gamepad/netplay. */
-    if (g_nes_config.player_src[1] == 1)
+    if (NESRECOMP_INPUT_SEATS == 2 && g_nes_config.player_src[1] == 1)
         g_nes_config.player_src[1] = 0;
 }
 
@@ -156,6 +169,11 @@ void config_save(const char *path) {
     fprintf(f, "Player2Source = %d\n", c->player_src[1]);
     fprintf(f, "Player1Deadzone = %d\n", c->deadzone[0]);
     fprintf(f, "Player2Deadzone = %d\n", c->deadzone[1]);
+    for (int p = 0; p < NESRECOMP_INPUT_SEATS; ++p)
+        fprintf(f, "Player%dDevice = %s\n", p+1, c->player_gamepad_guid[p]);
+    for (int p = 2; p < NESRECOMP_INPUT_SEATS; ++p) {
+        fprintf(f, "Player%dSource = %d\nPlayer%dDeadzone = %d\n", p+1, c->player_src[p], p+1, c->deadzone[p]);
+    }
     fprintf(f, "[Launcher]\n");
     fprintf(f, "SkipLauncher = %d\n",  c->skip_launcher);
     fprintf(f, "NetplayPlayerName = %s\n", c->netplay_player_name);

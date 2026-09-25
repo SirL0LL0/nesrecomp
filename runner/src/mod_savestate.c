@@ -17,6 +17,7 @@ typedef struct {
     char                id[NES_MOD_SAVESTATE_ID_CAP];
     NESModSavestateGet  get;
     NESModSavestateSet  set;
+    NESModSavestateValidate validate;
 } SavestateHook;
 
 static SavestateHook s_hooks[NES_MOD_MAX_SAVESTATE_HOOKS];
@@ -62,4 +63,16 @@ NESModSavestateSet nes_mod_savestate_hook_find_set(const char *id) {
     for (int i = 0; i < s_count; i++)
         if (strcmp(s_hooks[i].id, id) == 0) return s_hooks[i].set;
     return NULL;
+}
+
+int nes_mod_register_savestate_validator(const char *id, NESModSavestateValidate validate) {
+    if (!id || !validate) return 0;
+    for (int i=0;i<s_count;++i) if (!strcmp(s_hooks[i].id,id)) {
+        s_hooks[i].validate=validate;
+        return 1;
+    }
+    return 0;
+}
+NESModSavestateValidate nes_mod_savestate_hook_validate_at(int index) {
+    return index>=0 && index<s_count ? s_hooks[index].validate : NULL;
 }

@@ -26,6 +26,7 @@
 #include "crc32.h"
 #include "nes_runtime.h"
 #include "config.h"
+#include "logical_input.h"
 #if NESRECOMP_ENABLE_MODS
 #include "mod_runtime.h"
 #if !defined(NESRECOMP_GAME_ID) || !defined(NESRECOMP_GAME_ROM_CRC32)
@@ -400,8 +401,19 @@ reopen_recomp_launcher:
             ls.volume         = g_nes_config.volume;
             ls.player_src[0]  = g_nes_config.player_src[0];
             ls.player_src[1]  = g_nes_config.player_src[1];
+            for (int p=2; p<NESRECOMP_INPUT_SEATS; ++p) {
+                ls.player_src[p] = g_nes_config.player_src[p];
+                ls.deadzone[p] = g_nes_config.deadzone[p];
+            }
             ls.deadzone[0]    = g_nes_config.deadzone[0];
             ls.deadzone[1]    = g_nes_config.deadzone[1];
+            for (int p = 0; p < NESRECOMP_INPUT_SEATS; ++p) {
+                snprintf(ls.player_gamepad_guid[p], sizeof ls.player_gamepad_guid[p],
+                         "%s", g_nes_config.player_gamepad_guid[p]);
+#ifdef RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_INSTANCE
+                ls.player_gamepad_instance[p] = (uint32_t)(g_nes_config.player_gamepad_instance[p] + 1);
+#endif
+            }
             ls.skip_launcher  = g_nes_config.skip_launcher;
             ls.hdpack_enabled = g_nes_config.hdpack_enabled;
             snprintf(ls.hdpack_dir, sizeof(ls.hdpack_dir), "%s", g_nes_config.hdpack_dir);
@@ -503,8 +515,19 @@ reopen_recomp_launcher:
                 g_nes_config.volume         = ls.volume;
                 g_nes_config.player_src[0]  = ls.player_src[0];
                 g_nes_config.player_src[1]  = ls.player_src[1];
+                for (int p=2; p<NESRECOMP_INPUT_SEATS; ++p) {
+                    g_nes_config.player_src[p] = ls.player_src[p];
+                    g_nes_config.deadzone[p] = ls.deadzone[p];
+                }
                 g_nes_config.deadzone[0]    = ls.deadzone[0];
                 g_nes_config.deadzone[1]    = ls.deadzone[1];
+                for (int p = 0; p < NESRECOMP_INPUT_SEATS; ++p) {
+                    snprintf(g_nes_config.player_gamepad_guid[p], 40,
+                             "%s", ls.player_gamepad_guid[p]);
+#ifdef RECOMP_LAUNCHER_HAS_PLAYER_GAMEPAD_INSTANCE
+                    g_nes_config.player_gamepad_instance[p] = (int)ls.player_gamepad_instance[p] - 1;
+#endif
+                }
                 g_nes_config.skip_launcher  = ls.skip_launcher;
                 g_nes_config.hdpack_enabled = ls.hdpack_enabled;
                 snprintf(g_nes_config.hdpack_dir, sizeof(g_nes_config.hdpack_dir), "%s", ls.hdpack_dir);

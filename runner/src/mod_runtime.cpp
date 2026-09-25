@@ -73,6 +73,7 @@ struct Feature {
     std::string description;
     std::string group = "General";
     std::string exclusive_group;
+    std::vector<std::string> exclusive_groups;
     bool default_enabled = false;
     bool camera_controls = false;
     std::vector<PluginRef> plugins;
@@ -566,6 +567,9 @@ bool read_manifest(const fs::path& path, Package& out, std::string* error) {
                 else if (key == "exclusive_group") {
                     parsed = string_field(feature->exclusive_group);
                 }
+                else if (key == "exclusive_groups") {
+                    parsed = parse_string_array(value, feature->exclusive_groups);
+                }
                 else if (key == "default_enabled") {
                     parsed = parse_bool(value, bool_value);
                     if (parsed) feature->default_enabled = bool_value;
@@ -686,6 +690,7 @@ bool read_manifest(const fs::path& path, Package& out, std::string* error) {
         if (!valid_id(item.id) || item.name.empty() ||
             (!item.exclusive_group.empty() &&
              !valid_id(item.exclusive_group)) ||
+            !std::all_of(item.exclusive_groups.begin(), item.exclusive_groups.end(), valid_id) ||
             !feature_ids.insert(item.id).second) {
             set_error(error, "manifest has an invalid or duplicate feature");
             return false;
@@ -832,26 +837,28 @@ Validation validate(Runtime& runtime) {
                 });
                 continue;
             }
-            if (!feature.exclusive_group.empty()) {
+            std::set<std::string> groups(feature.exclusive_groups.begin(), feature.exclusive_groups.end());
+            if (!feature.exclusive_group.empty()) groups.insert(feature.exclusive_group);
+            for (const std::string& group : groups) {
                 const auto prior = claimed_exclusive_groups.find(
-                    feature.exclusive_group);
+                    group);
                 if (prior != claimed_exclusive_groups.end()) {
                     result.ok = false;
                     result.diagnostics.push_back({
                         package->id, feature.id,
                         prior->second.first, prior->second.second,
-                        "exclusive-group:" + feature.exclusive_group,
+                        "exclusive-group:" + group,
                         "Only one feature in this exclusive group may be enabled."
                     });
                     result.diagnostics.push_back({
                         prior->second.first, prior->second.second,
                         package->id, feature.id,
-                        "exclusive-group:" + feature.exclusive_group,
+                        "exclusive-group:" + group,
                         "Only one feature in this exclusive group may be enabled."
                     });
                 } else {
                     claimed_exclusive_groups.emplace(
-                        feature.exclusive_group,
+                        group,
                         std::make_pair(package->id, feature.id));
                 }
             }
@@ -2225,13 +2232,16 @@ int provider_feature_enable(void*, const char* package_id,
             return 0;
         }
     }
-    if (enabled && !feature->exclusive_group.empty()) {
+    if (enabled) {
+        std::set<std::string> groups(feature->exclusive_groups.begin(),feature->exclusive_groups.end());
+        if(!feature->exclusive_group.empty()) groups.insert(feature->exclusive_group);
         for (const FeatureRef& other : selected_features(state())) {
             if (other.package->id == package->id &&
                 other.feature->id == feature->id)
                 continue;
-            if (other.feature->exclusive_group != feature->exclusive_group)
-                continue;
+            bool overlap = groups.count(other.feature->exclusive_group) != 0;
+            for(const auto& group : other.feature->exclusive_groups) overlap |= groups.count(group) != 0;
+            if (!overlap) continue;
             FeatureSelection& other_selection =
                 package_selection(state(), *other.package)
                     .features[other.feature->id];
@@ -2501,9 +2511,12 @@ bool mod_runtime_commit(const fs::path& rom_path, std::string* error) {
     return true;
 }
 
+static std::set<std::string> local_only_features;
+
 void mod_runtime_activate_plugins() {
     Runtime& runtime = state();
     if (!runtime.initialized) return;
+    local_only_features.clear();
     for (NESModActivationCallback callback : reset_callbacks())
         if (callback) callback();
     for (const ResolvedPlugin& plugin : runtime.committed.plugins)
@@ -2517,6 +2530,17 @@ const RecompLauncherCModProvider* mod_runtime_launcher_provider() {
 #endif
 
 }  // namespace NESRecomp
+
+extern "C" void nes_mod_set_local_only(const char* name, int required) {
+    if (!name || !*name) return;
+    if (required) NESRecomp::local_only_features.insert(name);
+    else NESRecomp::local_only_features.erase(name);
+}
+
+extern "C" const char* nes_mod_local_only_reason(void) {
+    return NESRecomp::local_only_features.empty() ? nullptr :
+        NESRecomp::local_only_features.begin()->c_str();
+}
 
 extern "C" int nes_mod_register_activation_plugin(
     const char* id, NESModActivationCallback callback) {

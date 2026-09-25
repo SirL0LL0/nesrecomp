@@ -330,8 +330,11 @@ typedef struct {
      * that does not opt in emits no callback and no overhead.
      * Usage in game.toml:  [[mod_function_hook]]
      *                      addr = 0xB0E9
-     *                      bank = 0        # optional; default = fixed bank */
+     *                      bank = 0        # optional; omitted matches any bank */
     ExtraFunc        mod_function_hooks[GAME_CFG_MAX_EXTRA_FUNCS];
+    /* Opt-in: also intercept branch/fallthrough entry inside an emitted body.
+     * The callback owns the remainder of the native routine, just as for JSR. */
+    bool             mod_function_hook_internal[GAME_CFG_MAX_EXTRA_FUNCS];
     int              mod_function_hook_count;
 
     ExtraFunc        dedup_excludes[GAME_CFG_MAX_DEDUP_EXCLUDES];

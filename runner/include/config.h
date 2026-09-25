@@ -21,9 +21,9 @@ typedef struct {
     /* Audio (always on) */
     int volume;           /* 0..100; default 100 */
 
-    /* Input: P1 supports 0 none, 1 keyboard, 2 gamepad; P2 supports 0 or 2. */
-    int player_src[2];    /* default { 1 keyboard, 2 gamepad } */
-    int deadzone[2];      /* 0..100 percent; default { 30, 30 } */
+    /* Logical seats. Games opt into seats 3/4 via NESRECOMP_INPUT_SEATS. */
+    int player_src[4];    /* 0 none, 1 keyboard, 2 gamepad */
+    int deadzone[4];      /* 0..100 percent */
 
     /* Launcher behaviour */
     int skip_launcher;    /* boot straight to the game; default 0 */
@@ -40,6 +40,8 @@ typedef struct {
      * + folder picker write these. NESRECOMP_HDPACK env overrides both. */
     int  hdpack_enabled;   /* 0 off, 1 on; default 1 (master switch) */
     char hdpack_dir[512];  /* pack folder; "" = default <exe>/hdpack */
+    char player_gamepad_guid[4][40]; /* persisted device preference */
+    int player_gamepad_instance[4]; /* launcher selection, session only; -1 auto */
 } NesConfig;
 
 extern NesConfig g_nes_config;

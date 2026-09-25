@@ -763,10 +763,11 @@ static bool replace_func_matches(const GameConfig *cfg, int fixed_bank, uint16_t
 static bool s_mod_hook_matched[GAME_CFG_MAX_EXTRA_FUNCS];
 
 static bool mod_function_hook_matches(const GameConfig *cfg, int fixed_bank,
-                                      uint16_t addr, int bank) {
+                                      uint16_t addr, int bank, bool at_instruction) {
     (void)fixed_bank;
     bool hit = false;
     for (int i = 0; i < cfg->mod_function_hook_count; i++) {
+        if (cfg->mod_function_hook_internal[i] != at_instruction) continue;
         /* bank omitted (-1) means ANY bank: a 6502 address alone identifies
          * the routine in most titles, and requiring the bank would make the
          * common NROM case fail silently (e.g. $B0E9 lives in bank 0, not the
@@ -813,9 +814,24 @@ static void audit_mod_function_hooks(const GameConfig *cfg) {
  * does not opt in produces byte-identical generated code. */
 static void emit_mod_function_hook(FILE *f, const GameConfig *cfg,
                                    int fixed_bank, uint16_t addr, int bank) {
-    if (!mod_function_hook_matches(cfg, fixed_bank, addr, bank)) return;
+    if (!mod_function_hook_matches(cfg, fixed_bank, addr, bank, false)) return;
     fprintf(f, "    if (nes_mod_function_entry(0x%04Xu)) return;"
                "  /* trusted opt-in game-mod hook */\n", addr);
+}
+
+/* A native branch may enter a routine through a label in a shared C body,
+ * bypassing its public wrapper. Explicit include_internal hooks live at that
+ * instruction label instead, so JSR, branch, fallthrough and dedup aliases all
+ * pass the same gate exactly once. A handled callback returns from the native
+ * remainder; the multi-entry wrapper owns its tracking pop. */
+static void emit_mod_internal_hook(FILE *f, const GameConfig *cfg,
+                                  int fixed_bank, uint16_t addr, int bank,
+                                  bool multi_entry) {
+    if (!mod_function_hook_matches(cfg, fixed_bank, addr, bank, true)) return;
+    fprintf(f,"    if (nes_mod_function_entry(0x%04Xu)) { /* trusted native branch entry */\n",addr);
+    if (!multi_entry)
+        fprintf(f,"#ifdef RECOMP_STACK_TRACKING\n        recomp_stack_pop();\n#endif\n");
+    fprintf(f,"        return;\n    }\n");
 }
 
 static bool replace_func_matches_member(const GameConfig *cfg, int fixed_bank,
@@ -3870,6 +3886,7 @@ static void emit_function(FILE *f, const NESRom *rom, const FunctionEntry *fe,
         fprintf(f, "label_%04X:;", cursor);
         emit_sym(f, cursor, bank);
         fprintf(f, "\n");
+        emit_mod_internal_hook(f, cfg, fixed_bank, cursor, bank, is_multi_entry != 0);
         if (emitted_count < MAX_INSNS_PER_FUNC)
             emitted_addrs[emitted_count++] = cursor;
 

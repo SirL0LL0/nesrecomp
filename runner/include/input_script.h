@@ -3,8 +3,8 @@
  *
  * Script format (plain text):
  *   WAIT <frames>
- *   HOLD <BUTTON>          # A B SELECT START UP DOWN LEFT RIGHT
- *   RELEASE <BUTTON>
+ *   HOLD <BUTTON> [player] # A B SELECT START UP DOWN LEFT RIGHT; player 1..4, default 1
+ *   RELEASE <BUTTON> [player]
  *   TURBO ON|OFF           # toggle fast-forward (skip 60Hz delay)
  *   SCREENSHOT [filename]  # save to C:/temp/filename (default: nes_script_NNN.png)
  *   KEY_TAP KP8            # enqueue one host keyboard down/up pair
@@ -23,6 +23,7 @@ extern int g_turbo;
 
 int  script_load(const char *path);
 void script_tick(uint64_t frame, const uint8_t *ram);
+int  script_get_player_buttons(int player);
 int  script_get_buttons(void);   /* -1 = no override; else returns button byte */
 int  script_check_exit(void);    /* -1 = still running; else exit code */
 /* Returns 1 and fills buf with "C:/temp/<name>" if a screenshot was requested this frame */

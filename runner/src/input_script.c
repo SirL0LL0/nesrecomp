@@ -64,6 +64,7 @@ typedef enum {
 typedef struct {
     CmdType type;
     int     iarg;          /* WAIT: frames; EXIT: code; RAM commands: addr; foreign wait: frame */
+    uint8_t player;        /* logical seat, zero-based */
     uint8_t barg;          /* buttons/value; foreign wait: optional-frame-present */
     char    sarg[128];     /* filename, message, state path, or host key name */
 } Cmd;
@@ -77,6 +78,7 @@ static int    s_exit_code  = -1;
 static int    s_loaded     = 0;
 static int    s_trigger_override = 0; /* 1 = script controls zapper trigger */
 static uint8_t s_buttons_held = 0;
+static uint8_t s_extra_buttons[3];
 static char   s_shot_pending[128] = {0};
 static int    s_auto_shot_num = 1;
 static char   s_shot_prefix[32] = {0};
@@ -117,9 +119,11 @@ int script_load(const char *path) {
         } else if (strcmp(tok, "HOLD") == 0 && n >= 2) {
             for (char *p = arg1; *p; p++) *p = (char)toupper((unsigned char)*p);
             c.type = CMD_HOLD; c.barg = parse_button(arg1);
+            if (n >= 3) { int p=atoi(arg2); if(p<1 || p>4) { fclose(f); return 0; } c.player=(uint8_t)(p-1); }
         } else if (strcmp(tok, "RELEASE") == 0 && n >= 2) {
             for (char *p = arg1; *p; p++) *p = (char)toupper((unsigned char)*p);
             c.type = CMD_RELEASE; c.barg = parse_button(arg1);
+            if (n >= 3) { int p=atoi(arg2); if(p<1 || p>4) { fclose(f); return 0; } c.player=(uint8_t)(p-1); }
         } else if (strcmp(tok, "TURBO") == 0 && n >= 2) {
             for (char *p = arg1; *p; p++) *p = (char)toupper((unsigned char)*p);
             c.type = (strcmp(arg1, "ON") == 0) ? CMD_TURBO_ON : CMD_TURBO_OFF;
@@ -215,6 +219,7 @@ int script_load(const char *path) {
     s_wait_predicate_start_frame = UINT64_MAX;
     s_exit_code  = -1;
     s_buttons_held = 0;
+    memset(s_extra_buttons,0,sizeof(s_extra_buttons));
     return 1;
 }
 
@@ -293,12 +298,16 @@ void script_tick(uint64_t frame, const uint8_t *ram) {
         /* All other commands execute immediately */
         switch (c->type) {
             case CMD_HOLD:
-                s_buttons_held |= c->barg;
-                printf("[Script] HOLD %02X (held=%02X)\n", c->barg, s_buttons_held);
+                if (c->player) s_extra_buttons[c->player-1] |= c->barg;
+                else s_buttons_held |= c->barg;
+                printf("[Script] HOLD %02X P%d (held=%02X)\n", c->barg, c->player+1,
+                       c->player ? s_extra_buttons[c->player-1] : s_buttons_held);
                 break;
             case CMD_RELEASE:
-                s_buttons_held &= ~c->barg;
-                printf("[Script] RELEASE %02X (held=%02X)\n", c->barg, s_buttons_held);
+                if (c->player) s_extra_buttons[c->player-1] &= ~c->barg;
+                else s_buttons_held &= ~c->barg;
+                printf("[Script] RELEASE %02X P%d (held=%02X)\n", c->barg, c->player+1,
+                       c->player ? s_extra_buttons[c->player-1] : s_buttons_held);
                 break;
             case CMD_TURBO_ON:
                 g_turbo = 1;
@@ -527,4 +536,9 @@ void record_tick(uint64_t frame, uint8_t buttons, int turbo) {
     }
     s_rec_prev_btn = buttons;
     fflush(s_rec_file);
+}
+
+int script_get_player_buttons(int player) {
+    if (!s_loaded || player<1 || player>4) return -1;
+    return player==1 ? s_buttons_held : s_extra_buttons[player-2];
 }

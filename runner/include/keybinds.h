@@ -41,9 +41,11 @@ typedef enum {
 
 typedef struct {
     PlayerBinds  p1;
+    PlayerBinds extra[3];
     ZapperBinds  zapper;
     GamepadBinds pad1;
     GamepadBinds pad2;
+    GamepadBinds extra_pad[2];
     SDL_Scancode camera[NES_CAMERA_BIND_COUNT];
 } KeyBinds;
 
@@ -53,11 +55,11 @@ void keybinds_init(const char *exe_path);
 /* Get current keybind configuration */
 const KeyBinds *keybinds_get(void);
 
-/* Read the NES controller byte for player 1 from SDL keyboard state.
- * Player 2 uses its explicitly assigned gamepad (or netplay peer). */
+/* Read a logical seat from SDL keyboard state. Games opting into four-seat
+ * input may bind each seat; legacy games retain the P1-only keyboard policy. */
 uint8_t keybinds_read_player(const uint8_t *keys, int player);
 
-/* Get the gamepad bindings for player 1 or 2. */
+/* Get the gamepad bindings for a one-based logical seat. */
 const GamepadBinds *keybinds_get_pad(int player);
 
 /* Returns 1 if the Zapper mouse mode is enabled in keybinds.ini */

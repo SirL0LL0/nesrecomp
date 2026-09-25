@@ -27,6 +27,16 @@
 #include <SDL.h>
 #include "nes_runtime.h"
 #include "input_script.h"
+#include "logical_input.h"
+#if NESRECOMP_ENABLE_MODS
+#include "mod_runtime.h"
+#endif
+uint8_t g_logical_input[4];
+uint8_t nes_input_seat(int seat) {
+    if (seat == 1) return g_controller1_buttons;
+    if (seat == 2) return g_controller2_buttons;
+    return seat >= 3 && seat <= NESRECOMP_INPUT_SEATS ? g_logical_input[seat-1] : 0;
+}
 #include "savestate.h"
 #include "mod_audio.h"
 #include "logger.h"
@@ -1007,7 +1017,11 @@ void nes_vblank_callback(void) {
         if (tcp_btn >= 0) btn = (uint8_t)tcp_btn;
 
         g_controller1_buttons = btn;
-        g_controller2_buttons = (uint8_t)(s2 == 2 ? controller_read_player(2) : 0);
+        g_controller2_buttons = (uint8_t)(s2 == 2 ? controller_read_player(2) : (NESRECOMP_INPUT_SEATS > 2 && s2 == 1 ? keybinds_read_player(keys,2) : 0));
+        for (int p=2; p<NESRECOMP_INPUT_SEATS; ++p) {
+            int src = g_nes_config.player_src[p];
+            g_logical_input[p] = src==1 ? keybinds_read_player(keys,p+1) : src==2 ? controller_read_player(p+1) : 0;
+        }
     }
 
 smoke_skip_input:
@@ -1020,6 +1034,11 @@ smoke_skip_input:
         g_controller2_buttons = 0;
     }
 
+    for (int p=2; p<=NESRECOMP_INPUT_SEATS; ++p) {
+        int sp=script_get_player_buttons(p);
+        if (p==2) { if(sp>=0) g_controller2_buttons=(uint8_t)sp; }
+        else if(sp>=0) g_logical_input[p-1]=(uint8_t)sp;
+    }
 #ifdef NESRECOMP_NET
     /* One lockstep tick is admitted per outer VBlank. Nested VBlanks reuse the
      * already-published inputs, which keeps coroutine/spin-wait callbacks from
@@ -1823,6 +1842,13 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
         NesNetplayConfig net;
         if (!nes_netplay_take_pending_config(&net)) nes_netplay_config_defaults(&net);
         nes_netplay_apply_env(&net);
+#if NESRECOMP_ENABLE_MODS
+        if (net.enabled && nes_mod_local_only_reason()) {
+            fprintf(stderr, "[Netplay] %s requires local play. Disable it before starting an online session.\n",
+                    nes_mod_local_only_reason());
+            return 1;
+        }
+#endif
         if (net.enabled && nes_netplay_start(&net) != 0) {
             fprintf(stderr, "[Netplay] Could not start the requested session.\n");
             return 1;

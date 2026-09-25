@@ -269,6 +269,18 @@ int savestate_load(const char *path) {
     fclose(f);
     f = NULL;
 
+    for (int i=0;i<nes_mod_savestate_hook_count();++i) {
+        NESModSavestateValidate validate=nes_mod_savestate_hook_validate_at(i);
+        if (!validate) continue;
+        const char *id=nes_mod_savestate_hook_id_at(i);
+        int record=-1;
+        for (int j=0;j<mod_n;++j) if (!strcmp(id,mod_ids[j])) { record=j; break; }
+        if (!validate(record<0?NULL:mod_blobs[record],record<0?0:mod_lens[record])) {
+            fprintf(stderr,"[SaveState] Incompatible or invalid mod state '%s'; load rejected before changing the game\n",id);
+            goto mod_load_failed;
+        }
+    }
+
     if (ss.runtime_blob_size == 0 || ss.runtime_blob_size > sizeof(ss.runtime_blob) ||
         ss.apu_blob_size == 0 || ss.apu_blob_size > sizeof(ss.apu_blob)) {
         fprintf(stderr, "[SaveState] Invalid subsystem state in %s\n", path);

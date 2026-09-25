@@ -173,6 +173,17 @@ in that group, even when the features come from different packages. Validation
 also rejects a hand-edited state file that enables more than one, so the
 runtime can never activate incompatible presentation modes together.
 
+`exclusive_groups = ["display-mode", "player-controller"]` adds memberships
+when one feature conflicts with several independent feature families. It can
+be used with or without the older singular `exclusive_group`; both contribute
+to the same set. Enabling a feature disables every overlapping selection, and
+commit also rejects conflicts introduced by editing `state.toml` directly.
+
+A trusted plugin that requires local play calls
+`nes_mod_set_local_only("Feature name", 1)` during activation. These requests
+are cleared before the next activation pass. An online launch is rejected
+before connecting while any request remains active.
+
 ## Conditional plugin activation
 
 A `[[plugin]]` may be conditioned on one of its own feature's option values, so
@@ -261,6 +272,14 @@ Nonzero skips the original body; zero runs it unchanged. The check precedes
 the stack-tracking push, so a handling mod owns the whole call including its
 frame and needs no push/pop bookkeeping.
 
+For routines also reached by a native branch or fallthrough within a shared C
+body, add `include_internal = true`. This moves the gate to the original
+instruction label, covering those paths and ordinary calls exactly once.
+A nonzero callback handles the remainder of that native subroutine and returns
+from the current body; codegen balances its debug stack tracking. Use this only
+at verified subroutine boundaries, with CPU registers and guest scratch RAM
+preserved as required by the original caller. The default remains entry-only.
+
 Register the implementation like any other trusted plugin — archives still
 select behavior only by stable id, never by supplying native code:
 
@@ -286,6 +305,19 @@ function entry`) rather than silently never firing — worth heeding, since the
 
 This is intentionally narrow. It is not a general per-instruction mod
 dispatcher.
+
+Games with additional local players can compile with `NESRECOMP_INPUT_SEATS=4`
+and read one-based seats through `logical_input.h`. Seats 1/2 retain the NES
+controller ports; seats 3/4 are host inputs. `HOLD` and `RELEASE` input-script
+commands accept an optional final player number. Match the launcher's
+`NESRECOMP_GAME_PLAYERS` capability, and save any additional architectural input
+state in the game's mod record. Titles that omit the capability keep two seats.
+
+Register a pure `nes_mod_register_savestate_validator` alongside a mod's save
+hook when mode/configuration mismatches must be rejected before restoring core
+state. It receives `NULL, 0` for an absent record. Activation plugins may call
+`nes_mod_set_local_only` to reject requested online sessions before connection;
+the requirement is cleared and rebuilt on each activation pass.
 
 Mod-enabled game targets must define string literals for
 `NESRECOMP_GAME_ID` and `NESRECOMP_GAME_ROM_CRC32`. On Play, the runtime

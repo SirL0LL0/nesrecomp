@@ -5,6 +5,7 @@
  * Auto-generates with defaults if the file doesn't exist.
  */
 #include "keybinds.h"
+#include "logical_input.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -13,7 +14,7 @@
 
 /* ── Default bindings ─────────────────────────────────────────────────────── */
 
-static KeyBinds s_binds = {
+static const KeyBinds s_defaults = {
     .p1 = {
         .a      = SDL_SCANCODE_Z,
         .b      = SDL_SCANCODE_X,
@@ -78,6 +79,8 @@ static KeyBinds s_binds = {
         [NES_CAMERA_TOGGLE] = SDL_SCANCODE_KP_0,
     },
 };
+
+static KeyBinds s_binds;
 
 /* ── Button name mapping ──────────────────────────────────────────────────── */
 
@@ -242,6 +245,10 @@ static void write_defaults(const char *path) {
     fprintf(f, "# Common keys: Z, X, Backslash, Return, Up, Down, Left, Right\n");
     fprintf(f, "# Tab and F1-F12 are reserved runtime hotkeys.\n\n");
     write_player(f, "player1", &s_binds.p1);
+    if (NESRECOMP_INPUT_SEATS > 2) for (int p=2; p<=NESRECOMP_INPUT_SEATS; ++p) {
+        char section[16]; snprintf(section,sizeof(section),"player%d",p);
+        write_player(f,section,&s_binds.extra[p-2]);
+    }
     write_camera(f);
     fprintf(f, "[zapper]\n");
     fprintf(f, "# Mouse as the Zapper light gun (default on for Zapper games):\n");
@@ -257,6 +264,10 @@ static void write_defaults(const char *path) {
     fprintf(f, "# Names are positional (a=bottom, b=right, x=left, y=top on an Xbox pad).\n\n");
     write_pad(f, "gamepad1", &s_binds.pad1);
     write_pad(f, "gamepad2", &s_binds.pad2);
+    for (int p=3; p<=NESRECOMP_INPUT_SEATS; ++p) {
+        char section[16]; snprintf(section,sizeof(section),"gamepad%d",p);
+        write_pad(f,section,&s_binds.extra_pad[p-3]);
+    }
     fclose(f);
     printf("[Keybinds] Generated %s\n", path);
 }
@@ -290,6 +301,8 @@ static void load_ini(const char *path) {
             else if (strcmp(section, "camera") == 0) in_camera = 1;
             else if (strcmp(section, "gamepad1") == 0) cur_pad = &s_binds.pad1;
             else if (strcmp(section, "gamepad2") == 0) cur_pad = &s_binds.pad2;
+            else if (NESRECOMP_INPUT_SEATS > 2 && strlen(section)==7 && !strncmp(section,"player",6) && section[6]>='2' && section[6]<='4') current=&s_binds.extra[section[6]-'2'];
+            else if (NESRECOMP_INPUT_SEATS > 2 && strlen(section)==8 && !strncmp(section,"gamepad",7) && section[7]>='3' && section[7]<='4') cur_pad=&s_binds.extra_pad[section[7]-'3'];
             continue;
         }
 
@@ -359,7 +372,7 @@ static void load_ini(const char *path) {
                     /* Try SDL's own lookup */
                     sc = SDL_GetScancodeFromName(val);
                 }
-                if (sc != SDL_SCANCODE_UNKNOWN) {
+                if (sc != SDL_SCANCODE_UNKNOWN || !strcmp(val,"None") || !strcmp(val,"none")) {
                     *(SDL_Scancode *)((char *)current + bd->offset) = sc;
                 }
                 break;
@@ -379,6 +392,18 @@ static void load_ini(const char *path) {
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void keybinds_init(const char *exe_path) {
+    s_binds = s_defaults;
+    /* Match the launcher's established second keyboard layout. Extra seats
+       remain unbound until assigned; two-seat titles retain legacy behavior. */
+    if (NESRECOMP_INPUT_SEATS > 2) {
+        s_binds.extra[0] = (PlayerBinds){
+            .a=SDL_SCANCODE_K, .b=SDL_SCANCODE_L,
+            .select=SDL_SCANCODE_RSHIFT, .start=SDL_SCANCODE_BACKSLASH,
+            .up=SDL_SCANCODE_W, .down=SDL_SCANCODE_S,
+            .left=SDL_SCANCODE_A, .right=SDL_SCANCODE_D
+        };
+    }
+    s_binds.extra_pad[0] = s_binds.extra_pad[1] = s_binds.pad2;
     derive_ini_path(exe_path);
 
     FILE *test = fopen(s_ini_path, "r");
@@ -395,13 +420,13 @@ const KeyBinds *keybinds_get(void) {
 }
 
 static int is_runtime_hotkey(SDL_Scancode sc) {
-    return sc == SDL_SCANCODE_TAB ||
+    return sc <= SDL_SCANCODE_UNKNOWN || sc >= SDL_NUM_SCANCODES || sc == SDL_SCANCODE_TAB ||
            (sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12);
 }
 
 uint8_t keybinds_read_player(const uint8_t *keys, int player) {
-    if (player != 1) return 0;
-    const PlayerBinds *pb = &s_binds.p1;
+    if (player < 1 || player > NESRECOMP_INPUT_SEATS || (NESRECOMP_INPUT_SEATS == 2 && player != 1)) return 0;
+    const PlayerBinds *pb = player == 1 ? &s_binds.p1 : &s_binds.extra[player-2];
     uint8_t btn = 0;
     if (!is_runtime_hotkey(pb->a)      && keys[pb->a])      btn |= 0x80;
     if (!is_runtime_hotkey(pb->b)      && keys[pb->b])      btn |= 0x40;
@@ -415,7 +440,9 @@ uint8_t keybinds_read_player(const uint8_t *keys, int player) {
 }
 
 const GamepadBinds *keybinds_get_pad(int player) {
-    return (player == 1) ? &s_binds.pad1 : &s_binds.pad2;
+    static const GamepadBinds empty = {0};
+    if (player < 1 || player > NESRECOMP_INPUT_SEATS) return &empty;
+    return player == 1 ? &s_binds.pad1 : player == 2 ? &s_binds.pad2 : &s_binds.extra_pad[player-3];
 }
 
 int keybinds_zapper_mouse(void) {

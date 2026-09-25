@@ -69,6 +69,12 @@ int nes_mod_register_activation_plugin(const char* id,
  */
 int nes_mod_register_reset_callback(NESModActivationCallback callback);
 
+/* Trusted plugins may require local play. Requests are cleared before each
+ * activation pass. The runner rejects an online launch before connecting.
+ * `name` is a stable, human-readable feature name copied by the runtime. */
+void nes_mod_set_local_only(const char* name, int required);
+const char* nes_mod_local_only_reason(void);
+
 /* Read a persisted option for an active trusted plugin. Returns fallback when
  * the package, feature, option, or integer value is unavailable. */
 int nes_mod_get_option_int(const char* package_id,
