@@ -11,13 +11,20 @@ target_link_libraries(coop_input_test PRIVATE ${SDL2_LIBRARIES})
 set(RECOMP_UI_ROOT "" CACHE PATH "Optional UI checkout to test keyboard persistence into the runner")
 if(RECOMP_UI_ROOT)
     target_sources(coop_input_test PRIVATE
-        "${RECOMP_UI_ROOT}/src/consoles/nes/nes_binds.c"
-        "${RECOMP_UI_ROOT}/src/common/launcher_binds.c"
-        "${RECOMP_UI_ROOT}/src/common/keybinds.c"
-        "${RECOMP_UI_ROOT}/src/consoles/psx/psx_binds.c"
-        "${RECOMP_UI_ROOT}/src/consoles/n64/n64_binds.c"
-        "${RECOMP_UI_ROOT}/src/consoles/genesis/genesis_binds.c"
-        "${RECOMP_UI_ROOT}/src/consoles/gb/gb_binds.c")
+        "${RECOMP_UI_ROOT}/src/consoles/nes/nes_binds.c")
+    if(EXISTS "${RECOMP_UI_ROOT}/src/common/launcher_ini.inc")
+        # Current UI exposes the same production INI writer independently.
+        target_compile_definitions(coop_input_test PRIVATE COOP_TEST_UI_SHARED_INI)
+    else()
+        # Compatibility with UI pins before the persistence helper was split.
+        target_sources(coop_input_test PRIVATE
+            "${RECOMP_UI_ROOT}/src/common/launcher_binds.c"
+            "${RECOMP_UI_ROOT}/src/common/keybinds.c"
+            "${RECOMP_UI_ROOT}/src/consoles/psx/psx_binds.c"
+            "${RECOMP_UI_ROOT}/src/consoles/n64/n64_binds.c"
+            "${RECOMP_UI_ROOT}/src/consoles/genesis/genesis_binds.c"
+            "${RECOMP_UI_ROOT}/src/consoles/gb/gb_binds.c")
+    endif()
     target_include_directories(coop_input_test PRIVATE "${RECOMP_UI_ROOT}/src" "${RECOMP_UI_ROOT}/src/common")
     target_compile_definitions(coop_input_test PRIVATE COOP_TEST_UI SNESRECOMP_SDL2)
 endif()
@@ -27,3 +34,9 @@ if(WIN32)
 endif()
 enable_testing()
 add_test(NAME coop_input COMMAND coop_input_test)
+
+if(WIN32)
+    # Exercise virtual pads without depending on the owner's connected devices.
+    set_tests_properties(coop_input PROPERTIES ENVIRONMENT
+        "SDL_JOYSTICK_HIDAPI=0;SDL_JOYSTICK_WGI=0;SDL_XINPUT_ENABLED=0;SDL_DIRECTINPUT_ENABLED=0;SDL_JOYSTICK_RAWINPUT=0")
+endif()

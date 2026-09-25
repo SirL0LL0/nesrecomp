@@ -7,6 +7,9 @@
 #include <string.h>
 #ifdef COOP_TEST_UI
 #include "consoles/nes/nes_binds.h"
+#ifdef COOP_TEST_UI_SHARED_INI
+#include "launcher_ini.inc"
+#endif
 #endif
 
 #define CHECK(x) do { if(!(x)) { fprintf(stderr,"FAIL line %d: %s (%s)\n",__LINE__,#x,SDL_GetError());exit(1); } } while(0)
