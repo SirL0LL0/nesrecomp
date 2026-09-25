@@ -2,8 +2,8 @@
 #include <stdint.h>
 
 /*
- * mapper_init — initialize the mapper for a specific ROM.
- *   mapper_type:        iNES mapper number (0=NROM, 1=MMC1, …)
+ * mapper_init â€” initialize the mapper for a specific ROM.
+ *   mapper_type:        iNES mapper number (0=NROM, 1=MMC1, â€¦)
  *   initial_mirroring:  iNES header mirroring (0=horizontal, 1=vertical)
  */
 void mapper_init(const uint8_t *prg_data, int prg_banks,
@@ -28,6 +28,8 @@ int  mapper_exgrafix_bg(int tile_index, int tile_id, int row,
                         uint8_t *lo, uint8_t *hi, int *pal);
 void mapper_ppuctrl_changed(void);
 void mapper_set_wram_size(uint32_t bytes);
+void mapper_gg_clear(void);                                   /* Game Genie ROM patches (MMC5 only) */
+int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp);      /* cmp < 0: no compare byte */
 extern int g_mmc5_win_bank8k[4];
 void mapper_write(uint16_t addr, uint8_t val);
 const uint8_t *mapper_get_switchable_bank(void);
@@ -90,7 +92,7 @@ typedef void (*mapper_chr_callback_t)(uint8_t *chr_data, int size, void *ctx);
 void mapper_set_chr_callback(mapper_chr_callback_t cb, void *ctx);
 
 /*
- * mapper_clock_scanline — clock the MMC3 scanline counter.
+ * mapper_clock_scanline â€” clock the MMC3 scanline counter.
  * Call once per visible scanline (0-239) during rendering.
  * Returns 1 if an IRQ should fire (counter hit zero and IRQs enabled).
  */

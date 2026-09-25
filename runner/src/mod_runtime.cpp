@@ -1,4 +1,4 @@
-#include "mod_runtime.h"
+﻿#include "mod_runtime.h"
 
 #include "crc32.h"
 
@@ -1246,8 +1246,8 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
     ResourceVerdict result;
     if (path.empty()) {
         result.status = resource.required
-            ? "Not selected — required before enabling"
-            : "Not selected — optional";
+            ? "Not selected Ã¢â‚¬â€ required before enabling"
+            : "Not selected Ã¢â‚¬â€ optional";
         return result;
     }
     std::error_code ec;
@@ -1276,7 +1276,7 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
         return cache.verdict;
 
     if (resource.format != "nes" && size != resource.size) {
-        result.status = "Wrong size — expected " +
+        result.status = "Wrong size Ã¢â‚¬â€ expected " +
             std::to_string(resource.size) + " bytes";
     } else {
         std::vector<uint8_t> bytes;
@@ -1334,7 +1334,7 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
                                 (uint64_t)prg_units * 16384u +
                                 (uint64_t)chr_units * 8192u;
                             if (payload_size != resource.size) {
-                                result.status = "Wrong normalized NES size — expected " +
+                                result.status = "Wrong normalized NES size Ã¢â‚¬â€ expected " +
                                     std::to_string(resource.size) + " bytes";
                             } else if (bytes.size() != 16u + payload_size) {
                                 result.status = "Malformed or truncated NES ROM image";
@@ -1344,7 +1344,7 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
                         }
                     }
                 } else if (bytes.size() != resource.size) {
-                    result.status = "Wrong normalized NES size — expected " +
+                    result.status = "Wrong normalized NES size Ã¢â‚¬â€ expected " +
                         std::to_string(resource.size) + " bytes";
                 }
             }
@@ -1354,9 +1354,9 @@ ResourceVerdict verify_external_rom(Runtime& runtime,
                               resource.normalized_sha1s.end(), digest) !=
                     resource.normalized_sha1s.end()) {
                     result.verified = true;
-                    result.status = "Verified — " + resource.identity;
+                    result.status = "Verified Ã¢â‚¬â€ " + resource.identity;
                 } else {
-                    result.status = "Checksum mismatch — unsupported ROM revision";
+                    result.status = "Checksum mismatch Ã¢â‚¬â€ unsupported ROM revision";
                 }
             }
         }
@@ -1861,6 +1861,27 @@ bool install_archive(Runtime& runtime, const fs::path& archive,
     return true;
 }
 
+/* Optional game-provided ROM identity (see nes_mod_set_rom_identity). */
+NESModRomIdentityFn g_rom_identity_fn = nullptr;
+
+bool crc32_file(const fs::path& path, std::string& out,
+                std::string* error);
+
+/* Identity used to match a ROM against a package target: the game's own function when registered
+ * (lets several equivalent ROM revisions share one target), else the CRC32 of the payload. */
+bool rom_identity(const fs::path& path, std::string& out, std::string* error) {
+    if (g_rom_identity_fn) {
+        char digest[9] = {0};
+        if (!g_rom_identity_fn(path.string().c_str(), digest)) {
+            set_error(error, "selected image is not a recognized ROM for this game");
+            return false;
+        }
+        out = digest;
+        return true;
+    }
+    return crc32_file(path, out, error);
+}
+
 bool crc32_file(const fs::path& path, std::string& out,
                 std::string* error) {
     std::vector<uint8_t> bytes;
@@ -2100,7 +2121,7 @@ int provider_commit_netplay(void*, const char* image_path) {
     Runtime& runtime = state();
     if (image_path && image_path[0]) {
         std::string digest;
-        if (!crc32_file(image_path, digest, &runtime.error) ||
+        if (!rom_identity(image_path, digest, &runtime.error) ||
             digest != runtime.rom_crc32) {
             if (runtime.error.empty())
                 runtime.error =
@@ -2458,7 +2479,7 @@ bool mod_runtime_commit(const fs::path& rom_path, std::string* error) {
     runtime.commit_succeeded = false;
     if (!rom_path.empty()) {
         std::string digest;
-        if (!crc32_file(rom_path, digest, &runtime.error)) {
+        if (!rom_identity(rom_path, digest, &runtime.error)) {
             set_error(error, runtime.error);
             return false;
         }
@@ -2527,6 +2548,10 @@ extern "C" int nes_mod_register_activation_plugin(
         return 0;
     plugins[id].activation = callback;
     return 1;
+}
+
+extern "C" void nes_mod_set_rom_identity(NESModRomIdentityFn fn) {
+    NESRecomp::g_rom_identity_fn = fn;
 }
 
 extern "C" int nes_mod_register_reset_callback(

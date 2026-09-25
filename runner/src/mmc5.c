@@ -67,7 +67,7 @@ static int wram_writable(const Mmc5 *m) {
     return m->ram_protect1 == 0x02 && m->ram_protect2 == 0x01;
 }
 
-uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr) {
+static uint8_t mmc5_cpu_read_raw(const Mmc5 *m, uint16_t addr) {
     if (addr < 0x6000) return 0;
     if (addr < 0x8000)
         return m->wram[(m->wram6000_off + (addr & 0x1FFF)) & (m->wram_size - 1)];
@@ -76,6 +76,23 @@ uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr) {
     int b = m->win_bank8k[win];
     if (b >= 0) return m->prg[((uint32_t)b << 13) + off];
     return m->wram[(m->win_wram_off[win] + off) & (m->wram_size - 1)];
+}
+
+uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr) {
+    uint8_t b = mmc5_cpu_read_raw(m, addr);
+    if (m->gg_n && addr >= 0x8000)
+        for (int i = 0; i < m->gg_n; i++)
+            if (m->gg_addr[i] == addr && (m->gg_cmp[i] < 0 || m->gg_cmp[i] == b)) return m->gg_val[i];
+    return b;
+}
+
+void mmc5_gg_clear(Mmc5 *m) { m->gg_n = 0; }
+
+int mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp) {
+    if (m->gg_n >= 4 || addr < 0x8000) return 0;
+    m->gg_addr[m->gg_n] = addr; m->gg_val[m->gg_n] = val; m->gg_cmp[m->gg_n] = (int16_t)cmp;
+    m->gg_n++;
+    return 1;
 }
 
 void mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val) {

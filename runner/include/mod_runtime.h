@@ -45,6 +45,15 @@ extern "C" {
 
 typedef void (*NESModActivationCallback)(void);
 
+/*
+ * Optional: let the game define what "the same ROM" means for package targets. The callback receives the
+ * selected file path and must write an 8-digit lowercase hex identity into out (9 bytes incl. NUL) and
+ * return 1, or return 0 if the file is not a supported image. Without it the identity is the CRC32 of
+ * all bytes after the iNES header. Register from a NES_MOD_CONSTRUCTOR.
+ */
+typedef int (*NESModRomIdentityFn)(const char* rom_path, char out[9]);
+void nes_mod_set_rom_identity(NESModRomIdentityFn fn);
+
 struct RecompLauncherCModProvider;
 
 int nes_mod_runtime_initialize_c(const char* root,
@@ -81,13 +90,13 @@ int nes_mod_get_option_int(const char* package_id,
  * player left it in the launcher (or the manifest default when untouched).
  * Writes a NUL-terminated string into `out` and returns 1; returns 0 with
  * out[0] = '\0' when the plan is not committed, the ids do not resolve, or the
- * value does not fit — the caller then applies its own default rather than
+ * value does not fit â€” the caller then applies its own default rather than
  * treating an empty string as a selection.
  *
  * Why this exists: the manifest schema already carries typed, validated,
  * launcher-rendered, persisted options ([[option]] boolean/choice/integer),
  * and nes_mod_get_option_int can read the integer ones, but a choice value had
- * no accessor at all — so a parameterised feature had to be modelled as one
+ * no accessor at all â€” so a parameterised feature had to be modelled as one
  * feature per value. This closes that gap: one feature, one option, the plugin
  * reads what was chosen. Mirrors psx_mod_option_value in psxrecomp.
  *

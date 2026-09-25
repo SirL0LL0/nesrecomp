@@ -42,6 +42,12 @@ typedef struct Mmc5 {
     int win_bank8k[4];                 /* per-window ROM 8KB unit, or -1 = WRAM */
     int win_wram_off[4];               /* byte offset in wram when win_bank8k == -1 */
     int wram6000_off;
+
+    /* Game Genie style ROM patches: read of $8000+ returns gg_val when the mapped byte == gg_cmp (-1: always). */
+    int      gg_n;
+    uint16_t gg_addr[4];
+    uint8_t  gg_val[4];
+    int16_t  gg_cmp[4];
 } Mmc5;
 
 /* wram_buf must hold wram_size bytes (rounded down to a power of two); its content is left untouched. */
@@ -55,6 +61,10 @@ int  mmc5_reg_write(Mmc5 *m, uint16_t addr, uint8_t val);
 /* $6000-$FFFF CPU bus. */
 uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr);
 void    mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val);
+
+/* Game Genie patches (up to 4). mmc5_gg_add returns 1 on success. */
+void mmc5_gg_clear(Mmc5 *m);
+int  mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp);
 
 /* ROM 8KB unit behind window (0-3 = $8000/$A000/$C000/$E000), -1 if WRAM. */
 int mmc5_window_bank8k(const Mmc5 *m, int win);

@@ -1,12 +1,12 @@
 /*
- * mapper.c — NES mapper implementations
+ * mapper.c â€” NES mapper implementations
  *
  * Supported mappers:
- *   0 — NROM (Super Mario Bros., etc.)   No bank switching; PRG fixed at $8000-$FFFF.
- *   1 — MMC1 (Faxanadu, etc.)            5-bit serial shift register, 4 sub-registers.
- *   2 — UxROM (Mega Man, etc.)            Switchable 16KB low bank, fixed last high bank.
- *   4 — MMC3 (Mega Man 3, SMB3, etc.)    Bank select/data registers, scanline IRQ.
- *  66 — GxROM (Gumshoe, etc.)            Simple 32KB PRG + 8KB CHR bank select.
+ *   0 â€” NROM (Super Mario Bros., etc.)   No bank switching; PRG fixed at $8000-$FFFF.
+ *   1 â€” MMC1 (Faxanadu, etc.)            5-bit serial shift register, 4 sub-registers.
+ *   2 â€” UxROM (Mega Man, etc.)            Switchable 16KB low bank, fixed last high bank.
+ *   4 â€” MMC3 (Mega Man 3, SMB3, etc.)    Bank select/data registers, scanline IRQ.
+ *  66 â€” GxROM (Gumshoe, etc.)            Simple 32KB PRG + 8KB CHR bank select.
  *
  * Add new mappers: extend mapper_init() and mapper_write() with a new case.
  */
@@ -48,15 +48,15 @@ static ChrTraceEntry s_chr_trace[CHR_TRACE_SIZE];
 static int            s_chr_trace_idx = 0;
 static int            s_chr_trace_count = 0;
 
-/* ── CHR ROM data (for bank switching) ─────────────────────────────────────── */
+/* â”€â”€ CHR ROM data (for bank switching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static const uint8_t *s_chr_rom_data = NULL;
 static int            s_chr_rom_banks = 0; /* number of 8KB CHR ROM banks */
 
-/* ── Post-CHR-switch callback (for override/dump systems) ─────────────────── */
+/* â”€â”€ Post-CHR-switch callback (for override/dump systems) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static mapper_chr_callback_t s_chr_callback = NULL;
 static void *s_chr_callback_ctx = NULL;
 
-/* ── Mapper 66 (GxROM) state ────────────────────────────────────────────────── */
+/* â”€â”€ Mapper 66 (GxROM) state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static int s_gxrom_chr_bank = 0;  /* 8KB CHR bank selected by bits 0-1 */
 
 /* Mapper 40 (BTL SMB2A) state. */
@@ -76,7 +76,7 @@ static void mapper40_apply_prg(void) {
     g_current_bank = g_mapper40_bank_c000_8k >> 1;
 }
 
-/* ── Mapper 5 (MMC5) ────────────────────────────────────────────────────────── */
+/* â”€â”€ Mapper 5 (MMC5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static Mmc5     s_mmc5;
 static uint32_t s_mmc5_wram_size = 0x2000;
 static uint8_t  s_mmc5_chr_bg[0x2000];   /* BG pattern view (set B in 8x16 mode) */
@@ -93,6 +93,11 @@ extern int      runtime_frame_scanline(void);
 extern uint8_t  g_chr_ram[0x2000];
 
 void mapper_set_wram_size(uint32_t bytes) { s_mmc5_wram_size = bytes; }
+void mapper_gg_clear(void) { mmc5_gg_clear(&s_mmc5); s_mmc5_bufs_dirty = 1; }
+int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp) {
+    s_mmc5_bufs_dirty = 1;
+    return s_mapper_type == 5 && mmc5_gg_add(&s_mmc5, addr, val, cmp);
+}
 
 static void mmc5_publish_windows(void) {
     for (int i = 0; i < 4; i++) g_mmc5_win_bank8k[i] = mmc5_window_bank8k(&s_mmc5, i);
@@ -246,7 +251,7 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
     return 1;
 }
 
-/* ── Mapper 1 (MMC1) state ─────────────────────────────────────────────────── */
+/* â”€â”€ Mapper 1 (MMC1) state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static uint8_t s_shift_reg   = 0x10; /* Reset state: bit 4 set */
 static int     s_shift_count  = 0;
 static uint8_t s_ctrl    = 0x1C;     /* Default: PRG mode 3, CHR mode 0 */
@@ -259,7 +264,7 @@ static FILE *s_mapper_trace = NULL;
 extern uint64_t g_frame_count; /* defined in runtime.c */
 extern const char *g_last_recomp_func; /* defined in recomp_stack.c */
 
-/* ── MMC1 CHR bank switching ───────────────────────────────────────────────── */
+/* â”€â”€ MMC1 CHR bank switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 extern uint8_t g_chr_ram[0x2000];
 
 static void mmc1_apply_chr(void) {
@@ -284,7 +289,7 @@ static void mmc1_apply_chr(void) {
         s_chr_callback(g_chr_ram, 0x2000, s_chr_callback_ctx);
 }
 
-/* ── Mapper 4 (MMC3) state ─────────────────────────────────────────────────── */
+/* â”€â”€ Mapper 4 (MMC3) state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static uint8_t s_mmc3_bank_select = 0;   /* $8000: register select + mode bits */
 static uint8_t s_mmc3_regs[8]     = {0}; /* R0-R7: bank register values */
 static uint8_t s_mmc3_irq_latch   = 0;   /* $C000: scanline counter reload */
@@ -416,7 +421,7 @@ static void mmc3_apply_chr(void) {
         s_chr_callback(g_chr_ram, 0x2000, s_chr_callback_ctx);
 }
 
-/* ── MMC1 helper ───────────────────────────────────────────────────────────── */
+/* â”€â”€ MMC1 helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 static void mmc1_apply_prg(void) {
     int mode = (s_ctrl >> 2) & 3;
     int bank = s_prg_reg & 0x0F;
@@ -447,7 +452,7 @@ static void mmc1_apply_prg(void) {
     s_mirroring = s_ctrl & 0x03;
 }
 
-/* ── Public API ────────────────────────────────────────────────────────────── */
+/* â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 void mapper_init(const uint8_t *prg_data, int prg_banks,
                  int mapper_type, int initial_mirroring) {
@@ -502,7 +507,7 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
      * Set to 2N so get_switchable returns lower half, get_fixed returns upper. */
     if (mapper_type == 66) {
         int total_32k = prg_banks / 2;
-        g_current_bank = (total_32k - 1) * 2; /* e.g. 8 16KB banks → bank 6 */
+        g_current_bank = (total_32k - 1) * 2; /* e.g. 8 16KB banks â†’ bank 6 */
         s_gxrom_chr_bank = 0;
     }
 
@@ -595,7 +600,7 @@ void mapper_write(uint16_t addr, uint8_t val) {
 
             if (addr <= 0x9FFF) {
                 if (addr & 1) {
-                    /* $8001: Bank data — write to selected register */
+                    /* $8001: Bank data â€” write to selected register */
                     int reg = s_mmc3_bank_select & 0x07;
                     s_mmc3_regs[reg] = val;
                     if (reg <= 5)
@@ -603,7 +608,7 @@ void mapper_write(uint16_t addr, uint8_t val) {
                     else
                         mmc3_apply_prg();
                 } else {
-                    /* $8000: Bank select — which register + PRG/CHR mode */
+                    /* $8000: Bank select â€” which register + PRG/CHR mode */
                     int old_prg_mode = (s_mmc3_bank_select >> 6) & 1;
                     int old_chr_mode = (s_mmc3_bank_select >> 7) & 1;
                     s_mmc3_bank_select = val;
@@ -630,11 +635,11 @@ void mapper_write(uint16_t addr, uint8_t val) {
                 }
             } else if (addr <= 0xDFFF) {
                 if (addr & 1) {
-                    /* $C001: IRQ reload — set flag to reload counter */
+                    /* $C001: IRQ reload â€” set flag to reload counter */
                     s_mmc3_irq_reload = 1;
                     s_mmc3_irq_counter = 0;
                 } else {
-                    /* $C000: IRQ latch — value to reload counter with */
+                    /* $C000: IRQ latch â€” value to reload counter with */
                     s_mmc3_irq_latch = val;
                 }
             } else {
