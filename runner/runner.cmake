@@ -84,6 +84,19 @@ set(NESRECOMP_RUNNER_INCLUDE_DIRS
 # opt-in: ordinary games do not compile the loader, expose a Mods navigation
 # item, create a mods directory, or change runtime behavior. An opting-in game
 # owns its recomp-ui pin, package catalog, and linked plugin implementations.
+# In-game menu (recomp-ui runtime UI: recomp_runtime_ui.h). Opt-in: the game project must also call
+# recomp_target_runtime_ui_sdlrenderer2(<target>) after recomp_target_launcher_ui(), which supplies ImGui.
+option(NESRECOMP_ENABLE_RUNTIME_UI
+    "Build the recomp-ui in-game menu adapter (Esc; pauses the game)"
+    OFF)
+if(NESRECOMP_ENABLE_RUNTIME_UI)
+    list(APPEND NESRECOMP_RUNNER_SOURCES
+        ${NESRECOMP_RUNNER_ROOT}/src/runtime_ui_host.cpp
+    )
+    add_compile_definitions(NESRECOMP_RUNTIME_UI=1)
+    message(STATUS "NES runtime UI: recomp-ui in-game menu adapter enabled")
+endif()
+
 option(NESRECOMP_ENABLE_MODS
     "Build the NES mod package loader and trusted-plugin runtime"
     OFF)

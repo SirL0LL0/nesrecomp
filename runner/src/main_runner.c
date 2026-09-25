@@ -89,6 +89,23 @@ static void savestate_slot_path(int slot, char *out, size_t out_len) {
     snprintf(out, out_len, "%s/slot%02d.sav", s_savestate_dir, slot);
 }
 
+/* Same save/load behaviour as the F1..F12 hotkeys, shared with the in-game menu. */
+static void runner_slot_save(int slot) {
+    char path[1200];
+    savestate_slot_path(slot, path, sizeof(path));
+    savestate_save(path);
+}
+
+static void runner_slot_load(int slot) {
+    char path[1200];
+    savestate_slot_path(slot, path, sizeof(path));
+    uint64_t load_frame = g_frame_count;
+    if (savestate_load(path)) {
+        record_loadstate(load_frame, path);
+        record_sync_frame(g_frame_count); /* restored frame baseline */
+    }
+}
+
 /* ---- Smoke test mode (--smoke N) ---- */
 static int         s_smoke_frames   = 0;     /* 0 = normal, >0 = headless smoke test */
 static int         s_smoke_interval = 100;   /* hash framebuffer every N frames */
@@ -189,6 +206,42 @@ static SDL_Texture       *s_texture   = NULL;
 static SDL_Texture       *s_hd_texture = NULL;
 static uint32_t          *s_hd_buf     = NULL;
 static int                s_hd_scale   = 1;
+
+#ifdef NESRECOMP_RUNTIME_UI
+#include "runtime_ui_host.h"
+
+/* In-game menu hooks (runtime_ui_host.cpp): redraw the last presented frame under the menu, and apply the
+ * display settings the menu changes (the same ones the launcher writes to config.ini). */
+static void runtime_ui_draw_game(void) {
+    if (s_hd_texture && hdpack_active() && !ppu_renderer_custom_render_active())
+        SDL_RenderCopy(s_renderer, s_hd_texture, NULL, NULL);
+    else if (s_texture)
+        SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
+}
+
+static void runtime_ui_apply_display(void) {
+    if (!s_window || !s_renderer) return;
+    SDL_ScaleMode mode = g_nes_config.linear_filter ? SDL_ScaleModeLinear : SDL_ScaleModeNearest;
+    if (s_texture)    SDL_SetTextureScaleMode(s_texture, mode);
+    if (s_hd_texture) SDL_SetTextureScaleMode(s_hd_texture, mode);
+    if (!(s_hd_texture && hdpack_active()))
+        SDL_RenderSetIntegerScale(s_renderer, g_nes_config.integer_scale ? SDL_TRUE : SDL_FALSE);
+    Uint32 is_fs = SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN;
+    if (g_nes_config.fullscreen && !is_fs)
+        SDL_SetWindowFullscreen(s_window, g_nes_config.fullscreen == 2 ? SDL_WINDOW_FULLSCREEN
+                                                                       : SDL_WINDOW_FULLSCREEN_DESKTOP);
+    else if (!g_nes_config.fullscreen && is_fs)
+        SDL_SetWindowFullscreen(s_window, 0);
+    if (!g_nes_config.fullscreen) {
+        int scale = g_nes_config.window_scale < 1 ? 1 : g_nes_config.window_scale;
+        int cw = 0, ch = 0;
+        SDL_GetWindowSize(s_window, &cw, &ch);
+        if (cw != g_render_width * scale || ch != 240 * scale)
+            SDL_SetWindowSize(s_window, g_render_width * scale, 240 * scale);
+    }
+}
+#endif
+
 /* Widescreen globals — default to standard 4:3 NES output.
  * Games override these in game_on_init() before the first frame. */
 int g_render_width    = 256;
@@ -898,10 +951,29 @@ void nes_vblank_callback(void) {
     /* In headless modes, skip all SDL input/event handling. */
     if (headless_run_active()) goto smoke_skip_input;
 
+#ifdef NESRECOMP_RUNTIME_UI
+    {
+        /* Test hook: NESRECOMP_RUNTIME_UI_OPEN_FRAME=N opens the in-game menu at frame N (no key needed). */
+        static long s_open_frame = -2;
+        if (s_open_frame == -2) { const char *e = getenv("NESRECOMP_RUNTIME_UI_OPEN_FRAME"); s_open_frame = e ? atol(e) : -1; }
+        if (s_open_frame >= 0 && (long)g_frame_count == s_open_frame) {
+            SDL_Event open_ev;
+            memset(&open_ev, 0, sizeof open_ev);
+            open_ev.type = SDL_KEYDOWN;
+            open_ev.key.keysym.sym = SDLK_ESCAPE;
+            SDL_PushEvent(&open_ev);
+        }
+    }
+#endif
+
     /* Handle SDL events */
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
         controller_handle_event(&ev);  /* gamepad hotplug */
+#ifdef NESRECOMP_RUNTIME_UI
+        /* In-game menu (F1 / Esc / gamepad Guide): paused nested loop; consumes the opening event. */
+        if (nes_runtime_ui_event(&ev)) continue;
+#endif
 #ifdef NESRECOMP_GAME_SDL_EVENT_HOOK
         extern void NESRECOMP_GAME_SDL_EVENT_HOOK(const SDL_Event *event);
         NESRECOMP_GAME_SDL_EVENT_HOOK(&ev);
@@ -1994,6 +2066,22 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
         SDL_GetRendererOutputSize(s_renderer, &out_w, &out_h);
         nes_video_on_window_resized(out_w, out_h);
     }
+#ifdef NESRECOMP_RUNTIME_UI
+    if (!headless_run_active()) {
+        NesRuntimeUiHost host;
+        memset(&host, 0, sizeof host);
+        host.window = s_window;
+        host.renderer = s_renderer;
+        host.draw_game = runtime_ui_draw_game;
+        host.apply_display = runtime_ui_apply_display;
+        host.save_state = runner_slot_save;
+        host.load_state = runner_slot_load;
+        host.title = game_get_name();
+        host.subtitle = "NES";
+        if (!nes_runtime_ui_init(&host))
+            fprintf(stderr, "[RuntimeUI] disabled: init failed (Escape keeps quitting the runner)\n");
+    }
+#endif
 
     /* HD texture pack (Mesen HD Pack): opt-in via the NESRECOMP_HDPACK env var
      * or config.ini [Display] HdPackEnabled/HdPackDir. When a pack loads, present
