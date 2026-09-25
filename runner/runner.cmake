@@ -75,6 +75,34 @@ set(NESRECOMP_RUNNER_SOURCES
     ${NESRECOMP_RUNNER_ROOT}/src/mod_savestate.c
 )
 
+# ---- Backend MMC5 (tools/mmc5) ------------------------------------------------------------------------------
+# Un gioco MMC5 non usa NESRecomp.exe ma:  python <nesrecomp>/tools/mmc5/mmc5_regen.py --rom game.nes   (genera
+# <gen_dir>/blocks e <gen_dir>/decomp) e in CMakeLists.txt, dopo add_executable():
+#     nesrecomp_mmc5_tier(<target> ${CMAKE_SOURCE_DIR}/generated/mmc5)
+# Aggiunge mmc5_tier.c (func_RESET/NMI/IRQ + call_by_address) e i sorgenti generati. Opzioni:
+#     NESRECOMP_MMC5_BLOCKS / NESRECOMP_MMC5_DECOMP (default ON se i file esistono).
+option(NESRECOMP_MMC5_BLOCKS "MMC5 tier: blocchi base tradotti in C" ON)
+option(NESRECOMP_MMC5_DECOMP "MMC5 tier: funzioni C decompilate" ON)
+function(nesrecomp_mmc5_tier target gen_dir)
+    target_sources(${target} PRIVATE ${NESRECOMP_RUNNER_ROOT}/src/mmc5_tier.c)
+    if(NESRECOMP_MMC5_BLOCKS)
+        file(GLOB _mmc5_blocks CONFIGURE_DEPENDS ${gen_dir}/blocks/mmc5_blocks_*.c)
+        if(_mmc5_blocks)
+            target_sources(${target} PRIVATE ${_mmc5_blocks})
+            target_compile_definitions(${target} PRIVATE NESRECOMP_MMC5_BLOCKS=1)
+        endif()
+    endif()
+    if(NESRECOMP_MMC5_DECOMP)
+        file(GLOB _mmc5_dec CONFIGURE_DEPENDS ${gen_dir}/decomp/mmc5_dec_u*.c ${gen_dir}/decomp/mmc5_dec_tab.c)
+        list(FILTER _mmc5_dec EXCLUDE REGEX "_readable\\.c$")
+        if(_mmc5_dec)
+            target_sources(${target} PRIVATE ${_mmc5_dec})
+            target_include_directories(${target} PRIVATE ${gen_dir}/decomp)
+            target_compile_definitions(${target} PRIVATE NESRECOMP_MMC5_DECOMP=1)
+        endif()
+    endif()
+endfunction()
+
 set(NESRECOMP_RUNNER_INCLUDE_DIRS
     ${NESRECOMP_RUNNER_ROOT}/include
     ${NESRECOMP_RUNNER_ROOT}/../recompiler/src   # cpu6502_decoder.h (shared decode table)

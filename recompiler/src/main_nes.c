@@ -343,6 +343,45 @@ static void run_iterative_proposal(const NESRom *rom, const char *output_prefix,
     delete_if_exists(proposal_path);
 }
 
+/* ---- MMC5 backend launcher -------------------------------------------------------------------------------- */
+static int mmc5_file_exists(const char *p) { FILE *f = fopen(p, "rb"); if (f) { fclose(f); return 1; } return 0; }
+
+static int run_mmc5_backend(const char *argv0, const char *rom_path) {
+    char script[1024] = "";
+    const char *root = getenv("NESRECOMP_ROOT");
+    if (root && *root) snprintf(script, sizeof script, "%s/tools/mmc5/mmc5_regen.py", root);
+    if (!mmc5_file_exists(script)) {
+        /* the executable normally sits in a build directory below <nesrecomp>: look upwards for tools/mmc5 */
+        char dir[1024]; snprintf(dir, sizeof dir, "%s", argv0);
+        for (char *q = dir; *q; q++) if (*q == '\\') *q = '/';
+        char *slash = strrchr(dir, '/');
+        if (slash) *slash = 0; else strcpy(dir, ".");
+        for (int up = 0; up < 5 && !mmc5_file_exists(script); up++) {
+            snprintf(script, sizeof script, "%s/tools/mmc5/mmc5_regen.py", dir);
+            if (mmc5_file_exists(script)) break;
+            char *s2 = strrchr(dir, '/');
+            if (!s2) { strcat(dir, "/.."); } else *s2 = 0;
+            if (!dir[0]) strcpy(dir, "/");
+        }
+    }
+    if (!mmc5_file_exists(script)) {
+        fprintf(stderr, "[NESRecomp] Mapper 5 (MMC5): backend not found (tools/mmc5/mmc5_regen.py). "
+                        "Set NESRECOMP_ROOT to the nesrecomp checkout.\n");
+        return 1;
+    }
+    printf("[NESRecomp] Mapper 5 (MMC5): using the MMC5 backend (%s)\n", script);
+    char cmd[4096];
+#ifdef _WIN32
+    snprintf(cmd, sizeof cmd, "python \"%s\" --rom \"%s\"", script, rom_path);
+#else
+    snprintf(cmd, sizeof cmd, "python3 '%s' --rom '%s'", script, rom_path);
+#endif
+    int rc = system(cmd);
+    if (rc != 0)
+        fprintf(stderr, "[NESRecomp] MMC5 backend failed (code %d). It needs Python 3 with the 'py65' package.\n", rc);
+    return rc == 0 ? 0 : 1;
+}
+
 static void print_usage(void) {
     fprintf(stderr,
         "NESRecomp — static NES recompiler (6502 → C)\n"
@@ -428,6 +467,12 @@ int main(int argc, char *argv[]) {
            rom.prg_banks, rom.mapper);
     printf("[NESRecomp] Vectors: NMI=$%04X  RESET=$%04X  IRQ=$%04X\n",
            rom.nmi_vector, rom.reset_vector, rom.irq_vector);
+
+    /* MMC5: four 8KB windows switchable at run time (and WRAM-mappable) do not fit this recompiler's
+     * 16KB-banks-plus-fixed-bank model. The MMC5 backend (tools/mmc5) works on 8KB units keyed by the live
+     * window mapping instead; run it and let the game's CMake pick the result up (nesrecomp_mmc5_tier). */
+    if (rom.mapper == 5)
+        return run_mmc5_backend(argv[0], rom_path);
 
     /* Load game config */
     GameConfig cfg = {0};

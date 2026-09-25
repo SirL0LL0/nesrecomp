@@ -29,7 +29,7 @@ typedef struct {
 /* registry lookup by live CPU address (uses the MMC5 window mapping); NULL if not a decompiled entry */
 NesDecompFn nes_decomp_lookup(uint16_t addr);
 void        nes_decomp_install(const NesDecompEntry *tab, int n, uint8_t *valid);
-extern uint8_t jb_dec_valid[];   /* per function: its code matches the loaded ROM (else the body defers to the interpreter) */
+extern uint8_t mmc5_dec_valid[];   /* per function: its code matches the loaded ROM (else the body defers to the interpreter) */
 
 int      nes_interp_run_until(uint16_t entry, uint16_t stop_pc, uint8_t stop_s, int floor_valid, uint8_t floor_s);
 int      call_by_address(uint16_t addr);
@@ -61,7 +61,7 @@ extern int      g_rti_bank;
 /* JSR to an inline dispatch table: control never comes back here, the routine returns past this frame */
 #define JSR_TABLE(addr, ret) do { PUSH16(ret); nes_interp_run_until(addr, 0, 0, 1, _s0); return; } while (0)
 /* first statement of every decompiled function: if its code differs in the running ROM, let the interpreter run it */
-#define DEC_GUARD(id, pc) do { if (!jb_dec_valid[id]) { nes_interp_run_until(pc, 0, 0, 1, g_cpu.S); return; } } while (0)
+#define DEC_GUARD(id, pc) do { if (!mmc5_dec_valid[id]) { nes_interp_run_until(pc, 0, 0, 1, g_cpu.S); return; } } while (0)
 /* RTS pops the return address for real and publishes it (g_rts_target), so an interpreter frame that called us
  * natively can resume at the popped address + 1 even when the routine rewrote its return address. */
 #define RTS() do { uint8_t _lo, _hi; g_cpu.S++; _lo = g_ram[0x100 + g_cpu.S]; g_cpu.S++; _hi = g_ram[0x100 + g_cpu.S]; \
