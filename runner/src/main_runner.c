@@ -25,6 +25,7 @@
 #endif
 
 #include <SDL.h>
+#include "startup_timing.h"
 #include "nes_runtime.h"
 #include "input_script.h"
 #include "logical_input.h"
@@ -1692,6 +1693,10 @@ smoke_skip_input:
             SDL_RenderCopy(s_renderer, s_texture, NULL, NULL);
         }
         SDL_RenderPresent(s_renderer);
+        if (s_startup_first_frame) {
+            startup_timing_mark("first_frame_presented");
+            s_startup_first_frame = 0;
+        }
     }
 
     /* Safe point for a queued geometry change: this frame is presented, the
@@ -1799,6 +1804,8 @@ uint8_t *runner_get_prg_bank_rw(int bank_num) {
  * ROM discovery and CRC verification. argv[1] is guaranteed to be the ROM path.
  */
 int nesrecomp_runner_run(int argc, char *argv[]) {
+    startup_timing_begin();
+    startup_timing_mark("runner_enter");
     video_alloc_buffers();
 
     /* Parse optional flags */
@@ -1826,6 +1833,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     if (s_debug) printf("[Debug] OAM debug window enabled\n");
 
     if (!load_rom(argv[1])) exit(1);
+    startup_timing_mark("rom_loaded");
 
     /* Expose ROM path to game extras (used by verify mode to init FCEUX) */
     extern const char *g_rom_path_for_extras;
@@ -1836,6 +1844,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     keybinds_init(argv[0]);
     savestate_slots_init();
     game_on_init();
+    startup_timing_mark("game_initialized");
 
 #ifdef NESRECOMP_NET
     {
@@ -1908,7 +1917,9 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     }
 
     /* Gamepad support (Xbox/PS/Switch/generic via SDL's mapping DB). */
+    startup_timing_mark("sdl_initialized");
     controller_init();
+    startup_timing_mark("controllers_opened");
 
     /* Open audio device — use SDL_QueueAudio (callback=NULL) to push samples
      * from the game thread without needing a separate audio thread. */
@@ -1957,6 +1968,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
         }
     }
 
+    startup_timing_mark("audio_opened");
     {
         char window_title[64];
         snprintf(window_title, sizeof(window_title), "NESRecomp - %s", game_get_name());
@@ -1977,6 +1989,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     }
 
     /* Pixel-art scaling: nearest (crisp) by default, linear if the user opted in. */
+    startup_timing_mark("window_created");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,
                 g_nes_config.linear_filter ? "linear" : "nearest");
 
@@ -1991,6 +2004,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     /* Preserve the NES aspect ratio (letterbox instead of stretch) and keep
      * scaling to whole-pixel multiples so every NES pixel stays the same size.
      * Applies to both windowed-resize and fullscreen. */
+    startup_timing_mark("renderer_created");
     SDL_RenderSetLogicalSize(s_renderer, g_render_width, 240);
     SDL_RenderSetIntegerScale(s_renderer, g_nes_config.integer_scale ? SDL_TRUE : SDL_FALSE);
 
@@ -2111,6 +2125,7 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
     /* Don't force window on top — let the user manage window stacking */
 
     printf("[Runner] Starting main game loop...\n");
+    startup_timing_mark("game_loop");
 
     /* game_run_main() defaults to func_RESET() (native recompiled main loop,
      * never returns). In emulated mode, it runs FCEUX frames in a loop. */

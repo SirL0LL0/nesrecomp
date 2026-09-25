@@ -502,6 +502,12 @@ reopen_recomp_launcher:
                      gi.name ? gi.name : "NES");
             /* assets_dir is resolved next to the exe by the capi shim; "." is a
              * harmless placeholder. */
+#ifdef RECOMP_LAUNCHER_HAS_PRESERVE_SDL
+            /* Keep initialized video/input drivers for the in-process game.
+             * The launcher still releases its own window, GL and pad handles;
+             * the runner initializes audio and owns final SDL shutdown. */
+            recomp_launcher_set_preserve_sdl(1);
+#endif
             int act = recomp_launcher_run_window(win_title, &ls, &gi, ".",
                                                  init_rom, rom_path, sizeof(rom_path));
             if (act == 1) return 0;   /* user closed the launcher */
