@@ -1050,8 +1050,11 @@ int nes_interp_force_bank(uint16_t cpu_addr, uint16_t gen_addr, int bank) {
             interp_run_ex(cpu_addr, 1, NES_INTERP_HANDOFF_ISLAND, 0));
     }
 
+    /* Interrupt handlers may drive the whole game (Castlevania III runs its logic inside NMI): when the native
+     * handoff policy allows balanced JSR handoffs (decompiled functions installed), the handler cooperates with
+     * them like the main program does; otherwise it stays an island. */
     if (interp_exit_handled(
-            interp_run_ex(cpu_addr, 1, NES_INTERP_HANDOFF_ISLAND, 0)))
+            interp_run_ex(cpu_addr, 1, (NesInterpHandoffMode)s_native_handoff_mode, 0)))
         return 1;
 
     char reason[160];
@@ -1085,7 +1088,7 @@ int nes_interp_interrupt(uint16_t addr) {
      * generated functions. Keep dispatch_misses.log reserved for discovery
      * defects while still executing the handler against live memory. */
     if (interp_exit_handled(
-            interp_run_ex(addr, 1, NES_INTERP_HANDOFF_ISLAND, 0)))
+            interp_run_ex(addr, 1, (NesInterpHandoffMode)s_native_handoff_mode, 0)))
         return 1;
 
     fprintf(stderr, "[Interp] RAM/SRAM interrupt vector $%04X could not be interpreted\n", addr);
