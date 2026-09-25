@@ -1846,7 +1846,9 @@ int nesrecomp_runner_run(int argc, char *argv[]) {
         if (net.enabled && nes_mod_local_only_reason()) {
             fprintf(stderr, "[Netplay] %s requires local play. Disable it before starting an online session.\n",
                     nes_mod_local_only_reason());
-            return 1;
+            /* A nonzero runner return reopens the lobby. This is a rejected
+               launch, including scripted/headless launches, so terminate. */
+            exit(1);
         }
 #endif
         if (net.enabled && nes_netplay_start(&net) != 0) {
