@@ -229,6 +229,88 @@ static inline uint8_t interp_rd(AddrMode am, uint8_t op1, uint8_t op2) {
 /* ---- Flag helpers (identical to generated FLAG_NZ / NZC_ADD / NZC_SUB) ---- */
 #define I_NZ(v) do { g_cpu.N = ((uint8_t)(v) >> 7) & 1; g_cpu.Z = ((uint8_t)(v) == 0) ? 1 : 0; } while (0)
 
+/* ---- Translated basic blocks (see nes_blocks.h) ---- */
+#include "nes_blocks.h"
+#define BLK_UNITS 64
+static uint16_t s_cov_seq; static int s_cov_seq_ok;
+static const NesBlockEntry *s_blk_tab = NULL;
+static int                  s_blk_n = 0;
+static const uint8_t       *s_blk_code = NULL;               /* codebits from the generator */
+static const NesBlockEntry *s_blk_by_unit[BLK_UNITS][8192];  /* lazily filled lookup, [unit][off] */
+static int                  s_blk_on = 0;
+static uint8_t              s_blk_miss[BLK_UNITS * 1024];   /* interpreted instr outside the translated set */
+static uint8_t              s_blk_miss_seen_entry[BLK_UNITS * 1024];
+static uint64_t s_blk_instrs = 0, s_blk_runs = 0, s_int_known = 0, s_int_miss = 0, s_int_dyn = 0;
+
+static void blocks_report(void) {
+    if (!s_blk_n) return;
+    unsigned distinct = 0;
+    for (int i = 0; i < BLK_UNITS * 1024; i++)
+        for (int b = 0; b < 8; b++) if (s_blk_miss[i] & (1u << b)) distinct++;
+    fprintf(stderr, "[blocks] translated-block instrs=%llu (runs=%llu) | interpreted: in-translated-set=%llu MISS=%llu (distinct addrs %u) RAM/WRAM=%llu\n",
+            (unsigned long long)s_blk_instrs, (unsigned long long)s_blk_runs, (unsigned long long)s_int_known,
+            (unsigned long long)s_int_miss, distinct, (unsigned long long)s_int_dyn);
+    const char *mf = getenv("NESRECOMP_BLOCK_MISS_FILE");
+    if (mf && *mf) {
+        FILE *f = fopen(mf, "w");
+        if (f) {
+            for (int u = 0; u < BLK_UNITS; u++)
+                for (int off = 0; off < 8192; off++)
+                    if (s_blk_miss[u * 1024 + (off >> 3)] & (1u << (off & 7))) {
+                        int e = (s_blk_miss_seen_entry[u * 1024 + (off >> 3)] >> (off & 7)) & 1;
+                        fprintf(f, "%02X %04X%s\n", u, (unsigned)off, e ? " entry" : "");
+                    }
+            fclose(f);
+        }
+    }
+}
+
+void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits, int nunits) {
+    const char *dis = getenv("NESRECOMP_BLOCKS");
+    if ((dis && (!strcmp(dis, "0") || !strcmp(dis, "off"))) || getenv("NESRECOMP_PC_TRACE")) {
+        fprintf(stderr, "[blocks] translated blocks disabled by environment\n");
+    } else {
+        s_blk_on = 1;
+    }
+    (void)nunits;
+    s_blk_tab = tab; s_blk_n = n; s_blk_code = codebits;
+    memset(s_blk_by_unit, 0, sizeof s_blk_by_unit);
+    for (int i = 0; i < n; i++) s_blk_by_unit[tab[i].unit][tab[i].off] = &tab[i];
+    atexit(blocks_report);
+    fprintf(stderr, "[blocks] %d translated blocks installed (%s)\n", n, s_blk_on ? "active" : "inactive");
+}
+
+void nes_interp_step_hook(uint16_t pc, uint8_t opcode) {
+    const OpcodeEntry *e = &g_opcode_table[opcode];
+    nes_cpu_instruction_boundary(pc, e->cycles);
+    mapper_cov_mark(pc, e->size, !(s_cov_seq_ok && pc == s_cov_seq));
+    s_cov_seq = (uint16_t)(pc + e->size); s_cov_seq_ok = 1;
+    s_stats.instrs_total++;
+    s_stats.instrs_this_frame++;
+}
+
+/* Block for the live PC, or NULL. The live window mapping must match the unit and window the
+ * block was generated for; RAM/WRAM code never has one. */
+static inline const NesBlockEntry *blk_lookup(uint16_t pc) {
+    if (pc < 0x8000) return NULL;
+    int w = (pc - 0x8000) >> 13;
+    int unit = g_mmc5_win_bank8k[w];
+    if (unit < 0 || unit >= BLK_UNITS) return NULL;
+    const NesBlockEntry *b = s_blk_by_unit[unit][pc & 0x1FFF];
+    return (b && b->win == w) ? b : NULL;
+}
+
+/* Statistics for an instruction the interpreter executes itself. */
+static void blk_note_interp(uint16_t pc, int is_entry) {
+    int unit = (pc >= 0x8000) ? g_mmc5_win_bank8k[(pc - 0x8000) >> 13] : -1;
+    if (unit < 0 || unit >= BLK_UNITS) { s_int_dyn++; return; }
+    unsigned off = pc & 0x1FFF;
+    if (s_blk_code[unit * 1024 + (off >> 3)] & (1u << (off & 7))) { s_int_known++; return; }
+    s_int_miss++;
+    s_blk_miss[unit * 1024 + (off >> 3)] |= (uint8_t)(1u << (off & 7));
+    if (is_entry) s_blk_miss_seen_entry[unit * 1024 + (off >> 3)] |= (uint8_t)(1u << (off & 7));
+}
+
 /* 1 = BRK behaves like hardware (vector through $FFFE) instead of ending the run. */
 int g_interp_hw_brk = 0;
 
@@ -323,6 +405,22 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
             break;
         }
 
+        if (s_blk_on && !max_steps) {
+            const NesBlockEntry *b = blk_lookup(ipc);
+            if (b) {
+                budget -= (long)b->ninsn - 1;
+                uint16_t np = b->fn();
+                s_blk_instrs += b->ninsn; s_blk_runs++;
+                if (this_run <= UINT32_MAX - b->ninsn) this_run += b->ninsn;
+                ipc = np;
+                if (stop_on_stack_lift && g_cpu.S > S_floor) {
+                    result = make_exit(NES_INTERP_EXIT_STACK_ESCAPE, entry, np, entry_s);
+                    goto done;
+                }
+                continue;
+            }
+        }
+
         uint8_t opcode = interp_fetch(ipc);
         const OpcodeEntry *e = &g_opcode_table[opcode];
         uint8_t op1 = (e->size > 1) ? interp_fetch((uint16_t)(ipc + 1)) : 0;
@@ -367,12 +465,13 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
             }
         }
         {
-            static uint16_t s_seq; static int s_seq_ok;   /* arrival is a "target" unless sequential */
-            mapper_cov_mark(ipc, e->size, !(s_seq_ok && ipc == s_seq));
-            s_seq = (uint16_t)(ipc + e->size); s_seq_ok = 1;
+            /* arrival is a "target" unless sequential */
+            mapper_cov_mark(ipc, e->size, !(s_cov_seq_ok && ipc == s_cov_seq));
+            s_cov_seq = (uint16_t)(ipc + e->size); s_cov_seq_ok = 1;
         }
         s_stats.instrs_total++;
         s_stats.instrs_this_frame++;
+        if (s_blk_n) blk_note_interp(ipc, 0);
         if (this_run < UINT32_MAX) this_run++;
 
         uint16_t next = (uint16_t)(ipc + e->size); /* default sequential advance */
