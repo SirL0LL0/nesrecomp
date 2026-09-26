@@ -147,7 +147,13 @@ static Pulse    s_m1, s_m2;
 static uint8_t  s_mmc5_pcm;            /* $5011 (8-bit, "write mode") */
 static int      s_mmc5_clk;            /* CPU cycles since the last 240 Hz tick, in half-cycles */
 #define MMC5_TICK_HALF_CYCLES 14915    /* 7457.5 CPU cycles */
-#define MMC5_PCM_GAIN 0.40f            /* full-scale $5011 relative to the 0..1 mixer range */
+/* Full-scale $5011 relative to the 0..1 mixer range. Nintendulator mixes linearly: a pulse swings +-4*volume (120 units
+ * peak to peak at volume 15) and the PCM byte is added as 0..255, so full-scale PCM = 255/120 of a full-volume pulse
+ * (whose level in this mixer is 95.88/(8128/15+100) = 0.149) = 0.317. */
+#define MMC5_PCM_GAIN 0.317f
+int g_mmc5_pcm_read = 0;               /* $5010 bit0: PCM is sampled from CPU reads of $8000-$BFFF */
+static uint8_t s_mmc5_ctrl10;          /* $5010 */
+static uint8_t s_mmc5_pcm_irq;         /* $5010 read: 0x80 when a PCM value of 0 was seen */
 static Triangle s_tri;
 static Noise    s_noise;
 static DMC      s_dmc;
@@ -368,10 +374,10 @@ static uint8_t noise_out(const Noise *n) {
     return n->const_vol ? n->vol : n->env_vol;
 }
 
-/* MMC5 pulse output: like pulse_out() but there is no sweep unit (no target-period mute). Periods below 8 are still
- * muted to avoid the ultrasonic alias the 2A03 mutes as well. */
+/* MMC5 pulse output: like pulse_out() but there is no sweep unit (no target-period mute) and only periods <= 1 are
+ * silent (nintendulator: Just Breed writes 1, which sounds very bad without downsampling). */
 static uint8_t mmc5_pulse_out(const Pulse *p) {
-    if (!p->enabled || p->length == 0 || p->timer < 8) return 0;
+    if (!p->enabled || p->length == 0 || p->timer < 2) return 0;
     if (!DUTY_TABLE[p->duty][p->seq]) return 0;
     return p->const_vol ? p->vol : p->env_vol;
 }
@@ -406,10 +412,13 @@ void apu_mmc5_write(uint16_t addr, uint8_t val) {
         p->env_start = true;
         p->seq       = 0;
         break;
-    case 0x5010:                                    /* PCM mode/IRQ: no known use */
+    case 0x5010:                                    /* bit0: PCM read mode, bit7: IRQ on a PCM value of 0 */
+        s_mmc5_ctrl10 = val;
+        g_mmc5_pcm_read = val & 1;
         break;
     case 0x5011:
-        s_mmc5_pcm = val;                           /* 8-bit direct output */
+        if (!(s_mmc5_ctrl10 & 1)) s_mmc5_pcm = val;   /* 8-bit direct output (write mode) */
+        if (s_mmc5_pcm == 0) s_mmc5_pcm_irq = 0x80;
         break;
     case 0x5015:
         s_m1.enabled = (val >> 0) & 1;
@@ -420,6 +429,21 @@ void apu_mmc5_write(uint16_t addr, uint8_t val) {
     default:
         break;
     }
+}
+
+/* Read mode: every value the CPU reads from $8000-$BFFF becomes the PCM sample. */
+void apu_mmc5_pcm_read(uint8_t v) {
+    s_mmc5_pcm = v;
+    if (v == 0) s_mmc5_pcm_irq = 0x80;
+}
+/* $5010 read: the IRQ flag (bit 7), cleared by the read. */
+uint8_t apu_mmc5_read_pcm_irq(void) {
+    uint8_t f = s_mmc5_pcm_irq;
+    s_mmc5_pcm_irq = 0;
+    return f;
+}
+bool apu_mmc5_irq_asserted(void) {
+    return (s_mmc5_ctrl10 & s_mmc5_pcm_irq & 0x80) != 0;
 }
 
 uint8_t apu_mmc5_read_status(void) {
@@ -483,7 +507,7 @@ void apu_init(void) {
     memset(&s_p1,    0, sizeof(s_p1));
     memset(&s_p2,    0, sizeof(s_p2));
     memset(&s_m1, 0, sizeof(s_m1)); memset(&s_m2, 0, sizeof(s_m2));
-    s_mmc5_pcm = 0; s_mmc5_clk = 0;
+    s_mmc5_pcm = 0; s_mmc5_clk = 0; s_mmc5_ctrl10 = 0; s_mmc5_pcm_irq = 0; g_mmc5_pcm_read = 0;
     memset(&s_tri,   0, sizeof(s_tri));
     memset(&s_noise, 0, sizeof(s_noise));
     memset(&s_dmc,   0, sizeof(s_dmc));

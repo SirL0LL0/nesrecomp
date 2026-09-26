@@ -47,26 +47,35 @@ runs; `NESRECOMP_DECOMP_VERIFY=N` compares each decompiled function with the int
 hashes must match. Generated code carries a hash of the ROM bytes it came from; if they differ (patched/translated ROM)
 that block or function is skipped and the interpreter runs it.
 
-## Mapper status (checked against the "Mapper 005" reference notes)
+## Mapper status (checked against the "Mapper 005" notes and nintendulator-mappers' h_MMC5.cpp / s_MMC5.cpp)
 
 Implemented: PRG modes 0-3 with ROM/WRAM per window, $5113 RAM page, RAM write protect ($5102/$5103), CHR modes 0-3 with
 the A/B register sets (8x16 sprites use both, 8x8 uses the last written), 10-bit CHR registers with the high bits latched
-from $5130 *at write time*, ExRAM modes 0-3 (Ex0/Ex1 writable only while rendering, else $00 is stored; Ex2 RAM; Ex3
-read-only), ExAttribute mode, **nametable sources per $5105 slot (CIRAM 0/1, ExRAM, fill tile/attribute) for both the
-renderers and $2007 accesses**, **vertical split screen ($5200-$5202, left/right, tile threshold, own Y scroll, own CHR
-page)**, **expansion audio: two pulse channels ($5000-$5007, no sweep, 240 Hz envelope/length), PCM $5011, status $5015**,
-8x8->16 multiplier, scanline IRQ, power-on state, and the registers travel in save states (record `nesrecomp.mmc5`; older
-save states load as before).
+from $5130 *at write time* (power-on: identity registers), ExRAM modes 0-3 (Ex0/Ex1 writable only while rendering, else $00
+is stored; Ex2 RAM; Ex3 read-only), ExAttribute mode, nametable sources per $5105 slot (CIRAM 0/1, ExRAM, fill tile/attribute)
+for both the renderers and $2007 accesses, vertical split screen ($5200-$5202), 8x8->16 multiplier, power-on state, and the
+registers travel in save states (record `nesrecomp.mmc5`; older save states load as before).
 
-Tests (no game needed): `tests/mapper/mmc5_selftest.c` (registers), `tests/mapper/apu_mmc5_selftest.c` (pulse frequency,
-240 Hz length counter, status bits, PCM level), `tests/mapper/mmc5_rom_tests.py RUNNER.exe` (generates tiny MMC5 ROMs with
-`make_test_rom.py`, runs them headless and checks pixels: left/right split, nametable sources 0-3).
+* **PRG-RAM layout**: two chips of 0/8/32KB (ELROM 0+0, EKROM 8+0, ETROM 8+8, EWROM 32+0, ...). RAM bank 0-3 = chip 0, 4-7 = chip 1;
+  a bank with no chip is open bus (reads 0, writes ignored). Chosen by `NESRECOMP_MMC5_WRAM=<chip0KB>[,<chip1KB>]`, else the
+  CRC32 of the PRG (23 known games: Castlevania III 0+0, Just Breed (J) 8+0, Uncharted Waters 8+8, Romance of the Three Kingdoms II 32+0,
+  ...), else the NES 2.0 header, else 8+0. A translated ROM has another CRC: name the layout in the environment or the header.
+  The startup log prints `[Mapper] MMC5 PRG-RAM: a+b KB (source)`. Only an 8KB chip 0 is battery-saved; larger layouts use a private buffer.
+* **Scanline IRQ / in-frame**: the counter counts rendered scanlines (-1 on the pre-render line, n on visible line n); the pending flag
+  is cleared on visible line 0, "in frame" is set from visible line 1, compare value 0 never fires. A $2001 write that turns BG and
+  sprites off resets the counter and drops "in frame" for the rest of the frame (a pending IRQ survives); lines drawn with rendering
+  off are not counted.
+* **Expansion audio**: two pulse channels ($5000-$5007, no sweep, 240 Hz envelope/length; only periods <= 1 are silent), 8-bit PCM $5011,
+  status $5015. PCM read mode ($5010 bit 0: every CPU read of $8000-$BFFF becomes the sample) and the PCM IRQ ($5010 bit 7: raised when
+  the sample is 0, cleared by reading $5010). Level: full-scale PCM = 255/120 of a full-volume pulse (nintendulator's linear mixing).
 
-Known approximations / not done: the level balance of the MMC5 pulses and PCM against the 2A03 channels is not documented
-precisely (pulses use the same nonlinear curve, PCM a fixed gain) and periods below 8 are muted; the MMC5 audio state is
-not part of save states (games rewrite the registers); the "in frame" flag does not drop when $2001 turns rendering off
-mid-frame; the split's fine-X/scroll edge cases and the $5202 high bits are not verified against hardware; PRG-RAM above
-what the iNES header declares needs `NESRECOMP_MMC5_WRAM=64` (Uncharted Waters; that buffer is not persisted).
+Tests (no game needed): `tests/mapper/mmc5_selftest.c` (registers, RAM chips, counter), `tests/mapper/apu_mmc5_selftest.c` (pulse
+frequency, 240 Hz length counter, status bits, PCM level, PCM read mode/IRQ, low periods), `tests/mapper/mmc5_rom_tests.py RUNNER.exe`
+(generates tiny MMC5 ROMs with `make_test_rom.py`, runs them headless and checks pixels: left/right split, nametable sources 0-3).
+
+Known approximations / not done: the absolute level of the MMC5 audio against the 2A03 channels (only the pulse/PCM ratio is known); the
+MMC5 audio state is not part of save states (games rewrite the registers); the split's fine-X/scroll edge cases and the $5202 high bits
+are not verified against hardware; the mid-frame counter reset assumes the per-frame renderer clocks the mapper in step with the IRQ handler.
 
 Validated on Just Breed (PRG mode 3, ExAttribute, extra sound registers seen in use) and Castlevania III (intro).
 Not done yet: translating the interpreter "islands" (inline-argument routines, computed dispatch) so no interpreter is

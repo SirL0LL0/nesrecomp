@@ -29,6 +29,11 @@ int     apu_take_dmc_stall(void);
  * Polled by the general pending-IRQ delivery hook (runtime.c). Level — stays
  * true until the handler acknowledges the source. */
 bool    apu_irq_asserted(void);
+/* MMC5 expansion audio: PCM read mode / IRQ ($5010). */
+void    apu_mmc5_pcm_read(uint8_t v);
+uint8_t apu_mmc5_read_pcm_irq(void);
+bool    apu_mmc5_irq_asserted(void);
+extern int g_mmc5_pcm_read;
 
 /* Audio-fidelity T0 tap: per-channel staging buffer for the frame most
  * recently drained by apu_generate. ch: 0=pulse1 1=pulse2 2=triangle 3=noise

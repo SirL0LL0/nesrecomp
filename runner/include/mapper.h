@@ -28,6 +28,7 @@ const uint8_t *mapper_get_chr_rom(uint32_t *size);          /* whole CHR ROM (MM
 int  mapper_exgrafix_bg(int tile_index, int tile_id, int row,
                         uint8_t *lo, uint8_t *hi, int *pal);
 void mapper_ppuctrl_changed(void);
+void mapper_ppumask_written(uint8_t old_mask, uint8_t new_mask);   /* after a $2001 write (MMC5 counter reset) */
 void mapper_set_wram_size(uint32_t bytes);
 void mapper_gg_clear(void);                                   /* Game Genie ROM patches (MMC5 only) */
 int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp);      /* cmp < 0: no compare byte */

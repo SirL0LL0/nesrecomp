@@ -99,11 +99,47 @@ static void test_envelope_decay(void) {
     (void)mid;                                            /* looping envelope: level keeps cycling */
 }
 
+
+/* PCM read mode ($5010 bit 0): CPU reads of $8000-$BFFF become the sample; a value of 0 raises the IRQ flag ($5010 bit 7). */
+static void test_pcm_read_mode_and_irq(void) {
+    apu_init();
+    assert(!g_mmc5_pcm_read && !apu_mmc5_irq_asserted());
+    apu_mmc5_write(0x5010, 0x81);                         /* read mode + IRQ enable */
+    assert(g_mmc5_pcm_read);
+    apu_mmc5_pcm_read(0x30);
+    apu_mmc5_write(0x5011, 0x40);                         /* ignored in read mode ... */
+    assert(!apu_mmc5_irq_asserted());
+    apu_mmc5_pcm_read(0x00);                              /* ... a zero byte raises the flag */
+    assert(apu_mmc5_irq_asserted());
+    assert(apu_mmc5_read_pcm_irq() == 0x80);              /* reading returns and clears it */
+    assert(!apu_mmc5_irq_asserted() && apu_mmc5_read_pcm_irq() == 0);
+    apu_mmc5_write(0x5010, 0x80);                         /* write mode: $5011 = 0 also raises it */
+    apu_mmc5_write(0x5011, 0x00);
+    assert(apu_mmc5_irq_asserted());
+    apu_mmc5_write(0x5010, 0x00);                         /* IRQ disabled: flag set but line low */
+    assert(!apu_mmc5_irq_asserted());
+}
+
+/* Only periods <= 1 are silent (Just Breed writes 1); period 2..7 still sounds on the MMC5. */
+static void test_low_periods(void) {
+    apu_init();
+    apu_mmc5_write(0x5015, 0x01);
+    apu_mmc5_write(0x5000, 0xBF);
+    apu_mmc5_write(0x5002, 0x01); apu_mmc5_write(0x5003, 0x08);
+    int ns = run_cycles(CPU / 50);
+    assert(peak(ns) == 0);                                /* timer = 1: muted */
+    apu_mmc5_write(0x5002, 0x04); apu_mmc5_write(0x5003, 0x08);
+    ns = run_cycles(CPU / 50);
+    assert(peak(ns) > 0);                                 /* timer = 4: audible */
+}
+
 int main(void) {
     test_frequency_and_status();
     test_length_counter_240hz();
     test_disabled_and_pulse2_and_pcm();
     test_envelope_decay();
+    test_pcm_read_mode_and_irq();
+    test_low_periods();
     puts("apu_mmc5_selftest: all tests passed");
     return 0;
 }

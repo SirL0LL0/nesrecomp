@@ -39,11 +39,15 @@ typedef struct Mmc5 {
 
     int line_calls;                    /* mapper_clock_scanline calls this frame */
     int scanline;                      /* counter compared with irq_compare */
+    int ctr_base;                      /* line_calls value the counter counts from (reset when rendering is switched off) */
+    uint8_t off_this_frame;            /* rendering was switched off mid-frame: "in frame" stays clear until the next frame */
     int irq_fired;                     /* edge latch for the current pending */
 
     int win_bank8k[4];                 /* per-window ROM 8KB unit, or -1 = WRAM */
     int win_wram_off[4];               /* byte offset in wram when win_bank8k == -1 */
-    int wram6000_off;
+    int wram6000_off;                  /* -1 = no RAM chip behind the selected bank */
+    int8_t  wram_map[8];               /* RAM bank (0-7) -> 8KB block index in the WRAM buffer, -1 = none */
+    uint8_t wram_chips_kb[2];          /* the two PRG-RAM chips: 0, 8 or 32 (KB) */
 
     /* Game Genie style ROM patches: read of $8000+ returns gg_val when the mapped byte == gg_cmp (-1: always). */
     int      gg_n;
@@ -55,6 +59,13 @@ typedef struct Mmc5 {
 /* wram_buf must hold wram_size bytes (rounded down to a power of two); its content is left untouched. */
 void mmc5_init(Mmc5 *m, const uint8_t *prg, uint32_t prg_size,
                const uint8_t *chr, uint32_t chr_size, uint32_t wram_size, uint8_t *wram_buf);
+
+/* Board layout: two PRG-RAM chips of 0/8/32KB (ELROM 0+0, EKROM 8+0, ETROM 8+8, EWROM 32+0). The buffer passed to
+ * mmc5_init must hold chip0+chip1 bytes. Call right after mmc5_init. */
+void mmc5_set_wram_config(Mmc5 *m, int chip0_kb, int chip1_kb);
+
+/* Known board (CRC32 of the PRG ROM): returns (chip0_kb << 8) | chip1_kb, or -1 if the game is not in the table. */
+int mmc5_known_wram(const uint8_t *prg, uint32_t prg_size);
 
 /* $5000-$5FFF register/ExRAM access. Returns 1 if the address was handled. */
 int  mmc5_reg_read(Mmc5 *m, uint16_t addr, uint8_t *out);
@@ -85,6 +96,8 @@ int mmc5_nt_source(const Mmc5 *m, int nt);
 
 /* One call per PPU line: pre-render first, then visible lines 0-239.
  * Returns 1 when a new IRQ should be delivered to the CPU. */
-int  mmc5_clock_scanline(Mmc5 *m);
+int  mmc5_clock_scanline(Mmc5 *m, int rendering);
+/* A $2001 write disabled BG and sprites: reset the scanline counter and drop "in frame" (pending IRQ survives). */
+void mmc5_rendering_disabled(Mmc5 *m);
 /* Call at the start of every frame (also fine to omit; wraps after 241). */
 void mmc5_frame_start(Mmc5 *m);

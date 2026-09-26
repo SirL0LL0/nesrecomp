@@ -147,7 +147,7 @@ static int run_frame(int enable, int irq_expected_line) {
     int fired_line = -2;
     mmc5_frame_start(&m);
     for (int k = 0; k < 241; k++) {
-        if (mmc5_clock_scanline(&m)) fired_line = k - 1;   /* k=0 is pre-render (-1) */
+        if (mmc5_clock_scanline(&m, 1)) fired_line = k - 1;   /* k=0 is pre-render (-1) */
     }
     (void)enable;
     assert(fired_line == irq_expected_line);
@@ -207,6 +207,80 @@ static void test_state_roundtrip(void) {
     assert(mmc5_cpu_read(&m, 0x8000) == 2 && mmc5_cpu_read(&m, 0xC000) == 5);   /* 16KB window pair 2,3 ... */
 }
 
+
+/* Two PRG-RAM chips (0/8/32KB): banks 0-3 belong to chip 0, 4-7 to chip 1; a bank without a chip reads as open bus. */
+static uint8_t big_wram[0x10000];
+static void wram_setup(int c0, int c1) {
+    setup();
+    memset(big_wram, 0, sizeof big_wram);
+    mmc5_init(&m, prg, sizeof prg, chr, sizeof chr, 0x2000, big_wram);
+    mmc5_set_wram_config(&m, c0, c1);
+    w(0x5102, 2); w(0x5103, 1);
+}
+static void wr(int bank, uint8_t v) { w(0x5113, bank); mmc5_cpu_write(&m, 0x6000, v); }
+static uint8_t rd(int bank) { w(0x5113, bank); return mmc5_cpu_read(&m, 0x6000); }
+
+static void test_wram_chips(void) {
+    wram_setup(8, 0);                                     /* EKROM: Just Breed */
+    wr(0, 0x11); assert(rd(3) == 0x11);                   /* banks 0-3 mirror the one chip */
+    wr(5, 0x22); assert(rd(5) == 0 && rd(4) == 0);        /* banks 4-7: nothing there, writes ignored */
+    wram_setup(8, 8);                                     /* ETROM: 8+8 */
+    wr(0, 0x11); wr(4, 0x44);
+    assert(rd(0) == 0x11 && rd(2) == 0x11 && rd(4) == 0x44 && rd(7) == 0x44);
+    wram_setup(32, 0);                                    /* EWROM: four distinct 8KB pages */
+    for (int b = 0; b < 4; b++) wr(b, (uint8_t)(0x60 + b));
+    for (int b = 0; b < 4; b++) assert(rd(b) == 0x60 + b);
+    assert(rd(4) == 0);
+    wram_setup(0, 0);                                     /* ELROM: no RAM at all (Castlevania III) */
+    wr(0, 0x55); assert(rd(0) == 0);
+    wram_setup(32, 8);                                    /* 32KB then 8KB: banks 4-7 -> block 4 */
+    wr(1, 0x21); wr(4, 0x99);
+    assert(rd(1) == 0x21 && rd(6) == 0x99 && rd(0) == 0);
+    /* RAM in a PRG window follows the same map */
+    w(0x5100, 3); w(0x5115, 0x04);
+    assert(mmc5_window_bank8k(&m, 1) == -1 && mmc5_cpu_read(&m, 0xA000) == 0x99);
+}
+
+static void test_known_boards(void) {
+    static uint8_t junk[0x2000];
+    assert(mmc5_known_wram(junk, sizeof junk) == -1);
+    /* CRC32 of eight zero bytes is 0x6522DF69: not a board; just checks the CRC path is stable */
+    assert(mmc5_known_wram(junk, 8) == -1);
+}
+
+/* The counter counts rendered scanlines; switching rendering off resets it, drops "in frame" and keeps a pending IRQ. */
+static void test_rendering_off(void) {
+    setup();
+    w(0x5203, 100); w(0x5204, 0x80);
+    int fired = -2;
+    mmc5_frame_start(&m);
+    for (int k = 0; k < 241; k++) {
+        if (k == 50) mmc5_rendering_disabled(&m);         /* $2001 write with BG/sprites off at line 49 */
+        if (k >= 50 && k < 60) { if (mmc5_clock_scanline(&m, 0)) fired = k - 1; assert(!m.in_frame); continue; }
+        if (mmc5_clock_scanline(&m, 1)) fired = k - 1;
+    }
+    /* counter restarts at -1 on line 60 -> compare 100 is reached 101 lines later = line 160 */
+    assert(fired == 160);
+    assert(!m.in_frame);                                  /* stays clear until the next frame */
+    (void)r(0x5204);
+    /* pending survives rendering off */
+    mmc5_frame_start(&m);
+    for (int k = 0; k < 130; k++) mmc5_clock_scanline(&m, 1);
+    assert(m.irq_pending);
+    mmc5_rendering_disabled(&m);
+    assert(m.irq_pending && !m.in_frame);
+    /* in frame is set from visible line 1 (k=2), pending is cleared on visible line 0 (k=1) */
+    mmc5_frame_start(&m);
+    mmc5_clock_scanline(&m, 1); assert(!m.in_frame);
+    mmc5_clock_scanline(&m, 1); assert(!m.in_frame && !m.irq_pending);
+    mmc5_clock_scanline(&m, 1); assert(m.in_frame);
+}
+
+static void test_power_on_chr_regs(void) {
+    setup();
+    assert(m.chr_a[0] == 0 && m.chr_a[5] == 5 && m.chr_b[3] == 3);
+}
+
 int main(void) {
     test_power_on();
     test_prg_mode3();
@@ -220,6 +294,10 @@ int main(void) {
     test_chr_high_bits_latched();
     test_exram_rules();
     test_state_roundtrip();
+    test_wram_chips();
+    test_known_boards();
+    test_rendering_off();
+    test_power_on_chr_regs();
     puts("mmc5_selftest: all tests passed");
     return 0;
 }

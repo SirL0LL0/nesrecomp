@@ -220,6 +220,11 @@ void mapper_ppuctrl_changed(void) {
     if (s_mapper_type == 5) mmc5_apply_chr();
 }
 
+/* $2001 write: the MMC5 watches the PPU, so switching BG and sprites off resets its scanline counter / "in frame". */
+void mapper_ppumask_written(uint8_t old_mask, uint8_t new_mask) {
+    if (s_mapper_type == 5 && (old_mask & 0x18) && !(new_mask & 0x18)) mmc5_rendering_disabled(&s_mmc5);
+}
+
 static void mmc5_rebuild_bufs(void) {
     for (int i = 0; i < 2; i++) {
         for (int h = 0; h < 2; h++) {
@@ -242,9 +247,10 @@ int mapper_read_ext(uint16_t addr, uint8_t *out) {
             /* CPU code polls the in-frame bit (e.g. the NMI waits for it): derive it
              * from time-in-frame, since the runner executes the NMI atomically. */
             int line = runtime_frame_scanline();
-            s_mmc5.in_frame = (g_ppumask & 0x18) && line >= 21 && line < 21 + 240;
+            s_mmc5.in_frame = (g_ppumask & 0x18) && !s_mmc5.off_this_frame && line >= 22 && line < 21 + 240;
         }
         if (addr == 0x5015) { *out = apu_mmc5_read_status(); return 1; }
+        if (addr == 0x5010) { *out = apu_mmc5_read_pcm_irq(); return 1; }
         return mmc5_reg_read(&s_mmc5, addr, out);
     }
     *out = mmc5_cpu_read(&s_mmc5, addr);
@@ -260,7 +266,7 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
             fprintf(stderr, "[MMC5] f=%llu $%04X=%02X\n", (unsigned long long)g_frame_count, addr, val);
         if (addr >= 0x5C00) {                       /* ExRAM in modes 0/1 is writable only while the PPU renders */
             int line = runtime_frame_scanline();
-            s_mmc5.in_frame = (g_ppumask & 0x18) && line >= 21 && line < 21 + 240;
+            s_mmc5.in_frame = (g_ppumask & 0x18) && !s_mmc5.off_this_frame && line >= 22 && line < 21 + 240;
         }
         mmc5_reg_write(&s_mmc5, addr, val);
         if (addr <= 0x5015) apu_mmc5_write(addr, val);
@@ -523,13 +529,31 @@ void mapper_init(const uint8_t *prg_data, int prg_banks,
         /* WRAM <= 8KB lives in g_sram so the runner's battery-save layer (saves/<title>.srm) persists it;
          * larger chips (not seen yet) use a private, non-persistent buffer. */
         static uint8_t s_big_wram[MMC5_MAX_WRAM];
-        uint8_t *wbuf = s_mmc5_wram_size <= 0x2000 ? g_sram_ptr() : s_big_wram;
-        {   /* NESRECOMP_MMC5_WRAM=<KB>: some MMC5 games use up to 64KB of PRG-RAM that the iNES header does not declare
-             * (Uncharted Waters swaps RAM pages 0 and 4). A private, non-persistent buffer is used above 8KB. */
+        /* PRG-RAM layout: two chips of 0/8/32KB (nintendulator's board table). Order of preference:
+         * NESRECOMP_MMC5_WRAM=<chip0KB>[,<chip1KB>] > known game (CRC32 of the PRG) > NES 2.0 header size > 8+0. */
+        int c0 = 8, c1 = 0; const char *how = "default 8KB";
+        {
+            uint32_t hs = s_mmc5_wram_size;            /* from the header (NES 2.0) or 8KB */
+            if (hs == 0x4000) { c0 = 8; c1 = 8; how = "header"; }
+            else if (hs == 0x8000) { c0 = 32; c1 = 0; how = "header"; }
+            else if (hs == 0xA000) { c0 = 32; c1 = 8; how = "header"; }
+            else if (hs >= 0x10000) { c0 = 32; c1 = 32; how = "header"; }
+            int kc = mmc5_known_wram(prg_data, (uint32_t)prg_banks * 0x4000);
+            if (kc >= 0) { c0 = kc >> 8; c1 = kc & 0xFF; how = "known game (CRC32)"; }
             const char *w = getenv("NESRECOMP_MMC5_WRAM");
-            if (w && atoi(w) > 8) { s_mmc5_wram_size = (uint32_t)atoi(w) * 1024u; if (s_mmc5_wram_size > MMC5_MAX_WRAM) s_mmc5_wram_size = MMC5_MAX_WRAM; wbuf = s_big_wram; }
+            if (w && *w) {
+                int a = atoi(w); const char *cm = strchr(w, ',');
+                if (cm) { c0 = a; c1 = atoi(cm + 1); }
+                else if (a > 8) { c0 = a >= 32 ? 32 : 8; c1 = a == 16 ? 8 : (a >= 64 ? 32 : (a > 32 ? 8 : 0)); }   /* legacy total-size form */
+                how = "NESRECOMP_MMC5_WRAM";
+            }
         }
-        mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, s_mmc5_wram_size, wbuf);
+        s_mmc5_wram_size = (uint32_t)(c0 + c1) * 1024u;
+        if (s_mmc5_wram_size == 0) s_mmc5_wram_size = 0x2000;
+        uint8_t *wbuf = s_mmc5_wram_size <= 0x2000 ? g_sram_ptr() : s_big_wram;
+        mmc5_init(&s_mmc5, prg_data, (uint32_t)prg_banks * 0x4000, NULL, 0, 0x2000, wbuf);
+        mmc5_set_wram_config(&s_mmc5, c0, c1);
+        printf("[Mapper] MMC5 PRG-RAM: %d+%d KB (%s)\n", c0, c1, how);
         mmc5_publish_windows();
         nes_mod_register_savestate_hook("nesrecomp.mmc5", mmc5_ss_get, mmc5_ss_set);
     }
@@ -750,7 +774,7 @@ void mapper_write(uint16_t addr, uint8_t val) {
 }
 
 int mapper_clock_scanline(void) {
-    if (s_mapper_type == 5) return mmc5_clock_scanline(&s_mmc5);
+    if (s_mapper_type == 5) return mmc5_clock_scanline(&s_mmc5, (g_ppumask & 0x18) != 0);
     if (s_mapper_type != 4) return 0; /* only MMC3 has scanline IRQ */
 
     int fire = 0;
@@ -779,6 +803,7 @@ void mapper_clock_cpu(int cycles) {
 }
 
 int mapper_irq_asserted(void) {
+    if (s_mapper_type == 5) return apu_mmc5_irq_asserted();
     return s_mapper_type == 40 && s_mapper40_irq_pending;
 }
 

@@ -1533,6 +1533,7 @@ static uint8_t nes_read_inner(uint16_t addr) {
 uint8_t nes_read(uint16_t addr) {
     uint8_t v = nes_read_inner(addr);
     s_open_bus = v;
+    if (g_mmc5_pcm_read && addr >= 0x8000 && addr < 0xC000) apu_mmc5_pcm_read(v);   /* MMC5 PCM read mode */
     return v;
 }
 
@@ -1871,10 +1872,13 @@ void ppu_write_reg(uint16_t reg, uint8_t val) {
                 s_visible_frame_frame = g_frame_count;
             }
             break;
-        case 0x2001:
+        case 0x2001: {
+            uint8_t old_mask = g_ppumask;
             g_ppumask = g_ppumask_translate ? nes_ppumask_to_runner(val) : val;
             if (g_ppumask_translate)
                 g_ppumask |= 0x1E;
+            mapper_ppumask_written(old_mask, g_ppumask);
+        }
             if (getenv("NESRECOMP_TRACE_PPUMASK"))
                 fprintf(stderr, "[MASK] f=%llu cyc=%llu val=$%02X depth=%d\n",
                         (unsigned long long)g_frame_count,

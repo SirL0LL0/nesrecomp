@@ -12,15 +12,60 @@ void mmc5_init(Mmc5 *m, const uint8_t *prg, uint32_t prg_size,
     if (wram_size == 0 || wram_size > MMC5_MAX_WRAM) wram_size = 0x2000;
     while (wram_size & (wram_size - 1)) wram_size &= wram_size - 1;
     m->wram_size = wram_size;
+    /* default chip layout from the total size; mmc5_set_wram_config() refines it (two chips, 0/8/32KB each) */
+    mmc5_set_wram_config(m, wram_size >= 0x8000 ? 32 : 8, wram_size >= 0x10000 ? 32 : (wram_size == 0x4000 ? 8 : 0));
     m->prg_mode = 3;
     m->prg_last = 0xFF;          /* power-on: last bank at $E000 */
     m->prg_reg[2] = 0xFF;
     m->chr_mode = 3;
+    for (int i = 0; i < 8; i++) m->chr_a[i] = (uint16_t)i;      /* power-on: identity CHR registers (nintendulator) */
+    for (int i = 0; i < 4; i++) m->chr_b[i] = (uint16_t)i;
     m->exram_mode = 0;
     mmc5_remap(m);
 }
 
 static int rom_units(const Mmc5 *m) { return (int)(m->prg_size >> 13); }
+
+/* The board has up to two PRG-RAM chips (0, 8 or 32KB each, e.g. ETROM = 8+8, EWROM = 32+0). The 3-bit RAM bank number
+ * of $5113-$5117 selects an 8KB block: banks 0-3 belong to chip 0, banks 4-7 to chip 1; a bank with no chip behind it
+ * reads as open bus and ignores writes. The buffer holds chip 0 followed by chip 1. */
+void mmc5_set_wram_config(Mmc5 *m, int chip0_kb, int chip1_kb) {
+    int u0 = chip0_kb / 8, u1 = chip1_kb / 8;
+    for (int b = 0; b < 8; b++) {
+        if (b < 4) m->wram_map[b] = (int8_t)(u0 ? (u0 == 1 ? 0 : b) : -1);
+        else       m->wram_map[b] = (int8_t)(u1 ? u0 + (u1 == 1 ? 0 : b - 4) : -1);
+    }
+    uint32_t total = (uint32_t)(u0 + u1) * 0x2000u;
+    m->wram_size = total ? total : 0x2000u;
+    m->wram_chips_kb[0] = (uint8_t)chip0_kb; m->wram_chips_kb[1] = (uint8_t)chip1_kb;
+    mmc5_remap(m);
+}
+
+/* PRG-RAM layout of the known MMC5 boards, keyed by the CRC32 of the PRG ROM (table from nintendulator-mappers). */
+int mmc5_known_wram(const uint8_t *prg, uint32_t prg_size) {
+    static const struct { uint32_t crc; uint8_t c0, c1; } T[] = {
+        {0x95CA9EC7, 0, 0}, {0x51D2112F, 0, 0}, {0x255B129C, 0, 0}, {0xCD9ACF43, 0, 0}, {0xD979C8B7, 0, 0},        /* ELROM: CV3, Laser Invasion, ... */
+        {0xE7C72DBB, 8, 0}, {0x57F33F70, 8, 0}, {0x5D9D9891, 8, 0}, {0xE91548D8, 8, 0},                              /* EKROM: Gemfire, Royal Blood, Just Breed (J) */
+        {0x2B548D75, 8, 8}, {0xE6C28C5F, 8, 8}, {0x2F50BD38, 8, 8}, {0x57E3218B, 8, 8}, {0xB56958D1, 8, 8},         /* ETROM */
+        {0x98C8E090, 8, 8}, {0xCD35E2E9, 8, 8}, {0xF4CD4998, 8, 8}, {0x8FA95456, 8, 8},                              /* (Uncharted Waters = CD35E2E9) */
+        {0x11EAAD26, 32, 0}, {0x286613D8, 32, 0}, {0x95BA5733, 32, 0}, {0xF4120E58, 32, 0},                          /* EWROM */
+    };
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t i = 0; i < prg_size; i++) {
+        crc ^= prg[i];
+        for (int k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)-(int32_t)(crc & 1));
+    }
+    crc = ~crc;
+    for (unsigned i = 0; i < sizeof T / sizeof T[0]; i++)
+        if (T[i].crc == crc) return (T[i].c0 << 8) | T[i].c1;
+    return -1;
+}
+
+/* byte offset in the WRAM buffer of the 8KB block behind RAM bank `bank`, or -1 (open bus) */
+static int wram_block(const Mmc5 *m, int bank) {
+    int u = m->wram_map[bank & 7];
+    return u < 0 ? -1 : (int)((uint32_t)u << 13);
+}
 
 /* Resolve one window: reg = register value, span8 = window size in 8KB units,
  * idx = 8KB offset of this window inside that span, is_rom_forced for $5117. */
@@ -33,12 +78,12 @@ static void resolve(Mmc5 *m, int win, uint8_t reg, int span8, int idx, int force
     } else {
         int unit = ((reg & 0x07) & ~(span8 - 1)) + idx;
         m->win_bank8k[win] = -1;
-        m->win_wram_off[win] = (int)(((uint32_t)unit << 13) & (m->wram_size - 1));
+        m->win_wram_off[win] = wram_block(m, unit);       /* -1 = no RAM chip behind this bank (open bus) */
     }
 }
 
 static void mmc5_remap(Mmc5 *m) {
-    m->wram6000_off = (int)(((uint32_t)(m->wram_bank & 7) << 13) & (m->wram_size - 1));
+    m->wram6000_off = wram_block(m, m->wram_bank);
     switch (m->prg_mode & 3) {
     case 0:
         for (int i = 0; i < 4; i++) resolve(m, i, m->prg_last, 4, i, 1);
@@ -70,12 +115,12 @@ static int wram_writable(const Mmc5 *m) {
 static uint8_t mmc5_cpu_read_raw(const Mmc5 *m, uint16_t addr) {
     if (addr < 0x6000) return 0;
     if (addr < 0x8000)
-        return m->wram[(m->wram6000_off + (addr & 0x1FFF)) & (m->wram_size - 1)];
+        return m->wram6000_off < 0 ? 0 : m->wram[(uint32_t)m->wram6000_off + (addr & 0x1FFF)];
     int win = (addr - 0x8000) >> 13;
     int off = addr & 0x1FFF;
     int b = m->win_bank8k[win];
     if (b >= 0) return m->prg[((uint32_t)b << 13) + off];
-    return m->wram[(m->win_wram_off[win] + off) & (m->wram_size - 1)];
+    return m->win_wram_off[win] < 0 ? 0 : m->wram[(uint32_t)m->win_wram_off[win] + off];
 }
 
 uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr) {
@@ -98,12 +143,12 @@ int mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp) {
 void mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val) {
     if (!wram_writable(m) || addr < 0x6000) return;
     if (addr < 0x8000) {
-        m->wram[(m->wram6000_off + (addr & 0x1FFF)) & (m->wram_size - 1)] = val;
+        if (m->wram6000_off >= 0) m->wram[(uint32_t)m->wram6000_off + (addr & 0x1FFF)] = val;
         return;
     }
     int win = (addr - 0x8000) >> 13;
     if (m->win_bank8k[win] >= 0) return;          /* ROM: ignore */
-    m->wram[(m->win_wram_off[win] + (addr & 0x1FFF)) & (m->wram_size - 1)] = val;
+    if (m->win_wram_off[win] >= 0) m->wram[(uint32_t)m->win_wram_off[win] + (addr & 0x1FFF)] = val;
 }
 
 int mmc5_reg_write(Mmc5 *m, uint16_t addr, uint8_t val) {
@@ -201,27 +246,41 @@ const uint8_t *mmc5_chr_page(const Mmc5 *m, int slot1k, int bg, int sprite16) {
 void mmc5_frame_start(Mmc5 *m) {
     m->line_calls = 0;
     m->in_frame = 0;
+    m->ctr_base = 0;
+    m->off_this_frame = 0;
 }
 
-int mmc5_clock_scanline(Mmc5 *m) {
+/* Scanline counter as on the chip (nintendulator's model): it counts the scanlines that were rendered, starting at -1 on
+ * the pre-render line, so on visible line n it equals n. Turning rendering off (a $2001 write with BG and sprites off, or
+ * a line drawn with rendering off) resets it to -2 and drops "in frame" for the rest of the frame; a pending IRQ survives.
+ * The pending flag is cleared on visible line 0, "in frame" is set from visible line 1, compare value 0 never fires. */
+int mmc5_clock_scanline(Mmc5 *m, int rendering) {
     if (m->line_calls >= 241) mmc5_frame_start(m);
     int k = m->line_calls++;
-    if (k == 0) {                                   /* pre-render line */
+    if (!rendering) {
         m->in_frame = 0;
-        m->scanline = 0;
-        m->irq_pending = 0;
-        m->irq_fired = 0;
+        m->ctr_base = m->line_calls;                /* next rendered line counts -1 */
+        if (k > 0) m->off_this_frame = 1;
         return 0;
     }
-    m->in_frame = 1;
-    m->scanline = k - 1;                            /* visible line number */
-    if (k >= 2 && m->irq_compare != 0 && m->scanline == m->irq_compare)
+    if (k == 0) { m->ctr_base = 0; m->off_this_frame = 0; m->in_frame = 0; }
+    int ctr = k - m->ctr_base - 1;
+    m->scanline = ctr;
+    if (k == 1) { m->irq_pending = 0; m->irq_fired = 0; }
+    m->in_frame = (k >= 2 && !m->off_this_frame);
+    if (m->irq_compare != 0 && ctr == m->irq_compare)
         m->irq_pending = 1;
     if (m->irq_pending && m->irq_enabled && !m->irq_fired) {
         m->irq_fired = 1;
         return 1;
     }
     return 0;
+}
+
+void mmc5_rendering_disabled(Mmc5 *m) {
+    m->in_frame = 0;
+    m->ctr_base = m->line_calls;                    /* the next rendered line counts -1 */
+    if (m->line_calls > 0 && m->line_calls < 241) m->off_this_frame = 1;
 }
 
 /* ---- savestate ------------------------------------------------------------------------------------------ */
