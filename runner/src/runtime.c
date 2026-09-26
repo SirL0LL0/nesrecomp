@@ -3423,9 +3423,15 @@ void runtime_sync_scroll_from_t(void) {
  * comes from v ($2006), while t ($2005) is for the NEXT frame. */
 void runtime_sync_scroll_from_v(void) {
     uint16_t v = s_ppu_v_at_2006; /* use v as set by last $2006, not incremented by $2007 */
-    g_ppuscroll_x = (uint8_t)(((v & 0x1F) << 3) | (s_ppu_fine_x & 7));
+    /* The PPU copies the HORIZONTAL bits of t into v at dot 257 of every scanline (coarse X and the horizontal nametable
+     * bit), so what a mid-frame handler leaves in t through $2005/$2000 AFTER its $2006 pair decides the horizontal scroll
+     * from the next line on; only the vertical bits (coarse Y, fine Y, vertical nametable bit) stay as the $2006 pair set them.
+     * (Castlevania III writes v = $28xx with garbage in coarse X, then $2005 = 0,0: horizontal scroll 0.) When the handler
+     * ends with the $2006 pair, t == v and this reduces to the plain v decode. */
+    uint16_t t = s_ppu_t;
+    g_ppuscroll_x = (uint8_t)(((t & 0x1F) << 3) | (s_ppu_fine_x & 7));
     g_ppuscroll_y = (uint8_t)((((v >> 5) & 0x1F) << 3) | ((v >> 12) & 7));
-    g_ppuctrl = (g_ppuctrl & 0xFC) | ((v >> 10) & 3);
+    g_ppuctrl = (uint8_t)((g_ppuctrl & 0xFC) | ((t >> 10) & 1) | (((v >> 11) & 1) << 1));
 }
 
 void runtime_record_frame_start_scroll(void) {
