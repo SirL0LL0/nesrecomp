@@ -744,10 +744,13 @@ def main():
                 dyn_addrs.add(E.opv(i))
     open_fns = set(hard_bodies) | {e for e in fn_ok if e not in static_called or e in orphan_set or (rom.base[e[0]] + e[1]) in dyn_addrs}
     if not exact:
+        votes, cvotes = {}, {}
         for e, body in fn_all.items():
             pr = instr_preds(body, successors)
-            E.mark_fusion(c, body, pr)
-            E.mark_carry(body, pr)
+            E.mark_fusion(c, body, pr, votes)
+            E.mark_carry(body, pr, cvotes)
+        E.finalize_fusion(c, votes, ins)
+        E.finalize_carry(cvotes, ins)
     if "--closed" in sys.argv:              # ipotesi: nessun chiamante ignoto (i flag restituiti servono solo ai chiamanti noti)
         open_fns = set(hard_bodies)
     S = E.ipa(c, fn_ok, successors, rom, open_fns, fn_all)

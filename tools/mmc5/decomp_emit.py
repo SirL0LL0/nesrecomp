@@ -438,45 +438,66 @@ def setter_inputs(setter):
     return None
 
 
-def mark_fusion(c, body, preds):
-    """Segna i salti condizionati che si possono leggere dagli operandi del setter invece che dai flag."""
+def mark_fusion(c, body, preds, votes):
+    """Segna i salti condizionati che si possono leggere dagli operandi del setter invece che dai flag.
+
+    Le istruzioni sono condivise tra le funzioni che si sovrappongono (codice a coda comune): la decisione va presa una volta sola.
+    `votes` raccoglie, per ogni salto, il setter scelto da ciascuna funzione (None = non fondibile); dove le funzioni non sono
+    d'accordo il chiamante annulla la fusione (vedi finalize_fusion)."""
     for k, br in body.items():
-        br.fused = None
-        br.temp = None
         if br.name not in BR_FLAG:
             continue
         flag = BR_FLAG[br.name][0]
         if flag not in "NZCV":
             continue
+        entry = votes.setdefault(k, [br, set()])[1]
         r = find_setter(k, flag, body, preds)
         if r is None:
+            entry.add(None)
             continue
         setter, between = r
         ins_ = setter_inputs(setter)
-        if ins_ is None:
-            continue
         # registri da mantenere: quelli letti dalla condizione (CMP: il registro; NZ: il registro risultato)
-        if any(writes_reg(b) & ins_ for b in between):
+        if ins_ is None or any(writes_reg(b) & ins_ for b in between) or (setter.name in ("INC", "DEC") and setter.mode == "acc"):
+            entry.add(None)
             continue
+        entry.add((setter.u, setter.off))
+
+
+def finalize_fusion(c, votes, ins):
+    """Applica le fusioni su cui tutte le funzioni che contengono il salto sono d'accordo."""
+    for i in ins.values():
+        i.fused = None
+        i.temp = None
+    for k, (br, setters) in votes.items():
+        if len(setters) != 1 or None in setters:
+            continue
+        setter = ins[next(iter(setters))]
         if c.runnable and (setter.name in ("BIT", "INC", "DEC") or (setter.name in ("CMP", "CPX", "CPY") and setter.mode != "imm")):
             if not getattr(setter, "temp", None):
                 setter.temp = "t_%04X" % setter.pc
-        if setter.name in ("INC", "DEC") and setter.mode == "acc":
-            continue
         # BIT usa A: registrato in ins_; INC/DEC: valore in temp
         if fused_cond(br, setter, c) is None:
             continue
         br.fused = setter
 
 
-def mark_carry(body, preds):
-    """ADC/SBC/ROL/ROR il cui carry in ingresso e' una costante (CLC/SEC nella catena a predecessore unico)."""
+def mark_carry(body, preds, votes):
+    """ADC/SBC/ROL/ROR il cui carry in ingresso e' una costante (CLC/SEC nella catena a predecessore unico).
+    Come per la fusione, vale solo se tutte le funzioni che contengono l'istruzione trovano la stessa costante."""
     for k, i in body.items():
-        i.carry_const = None
         if i.name in ("ADC", "SBC", "ROL", "ROR"):
+            entry = votes.setdefault(k, [i, set()])[1]
             r = find_setter(k, "C", body, preds)
-            if r and r[0].name in ("CLC", "SEC"):
-                i.carry_const = 1 if r[0].name == "SEC" else 0
+            entry.add((1 if r[0].name == "SEC" else 0) if r and r[0].name in ("CLC", "SEC") else None)
+
+
+def finalize_carry(votes, ins):
+    for i in ins.values():
+        i.carry_const = None
+    for k, (i, vals) in votes.items():
+        if len(vals) == 1 and None not in vals:
+            i.carry_const = next(iter(vals))
 
 
 def reg_value(c, body, preds, k, reg):
