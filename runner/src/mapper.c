@@ -220,6 +220,17 @@ void mapper_ppuctrl_changed(void) {
     if (s_mapper_type == 5) mmc5_apply_chr();
 }
 
+/* Debug snapshot of the MMC5 registers (32 bytes): nt_map, chr_mode, exram_mode, irq_compare, prg regs, CHR A (low bytes), CHR B. */
+void mapper_mmc5_dump_regs(uint8_t out[32]) {
+    memset(out, 0, 32);
+    if (s_mapper_type != 5) return;
+    out[0] = s_mmc5.nt_map; out[1] = s_mmc5.chr_mode; out[2] = s_mmc5.exram_mode; out[3] = s_mmc5.irq_compare;
+    out[4] = s_mmc5.prg_mode; out[5] = s_mmc5.prg_reg[0]; out[6] = s_mmc5.prg_reg[1]; out[7] = s_mmc5.prg_reg[2]; out[8] = s_mmc5.prg_last;
+    for (int i = 0; i < 8; i++) out[9 + i] = (uint8_t)s_mmc5.chr_a[i];
+    for (int i = 0; i < 4; i++) out[17 + i] = (uint8_t)s_mmc5.chr_b[i];
+    out[21] = s_mmc5.in_frame; out[22] = s_mmc5.irq_enabled; out[23] = s_mmc5.irq_pending;
+}
+
 /* $2001 write: the MMC5 watches the PPU, so switching BG and sprites off resets its scanline counter / "in frame". */
 void mapper_ppumask_written(uint8_t old_mask, uint8_t new_mask) {
     if (s_mapper_type == 5 && (old_mask & 0x18) && !(new_mask & 0x18)) mmc5_rendering_disabled(&s_mmc5);
@@ -267,6 +278,12 @@ int mapper_write_ext(uint16_t addr, uint8_t val) {
         if (addr >= 0x5C00) {                       /* ExRAM in modes 0/1 is writable only while the PPU renders */
             int line = runtime_frame_scanline();
             s_mmc5.in_frame = (g_ppumask & 0x18) && !s_mmc5.off_this_frame && line >= 22 && line < 21 + 240;
+        }
+        {   static int s_ex = -1; static long s_exn;
+            if (s_ex < 0) s_ex = getenv("NESRECOMP_EXRAM_TRACE") ? 1 : 0;
+            if (s_ex && addr >= 0x5C00 && s_exn++ < 4000)
+                fprintf(stderr, "[EXW] f=%llu $%04X=%02X mode=%d in_frame=%d line=%d mask=%02X depth=%d\n", (unsigned long long)g_frame_count, addr, val,
+                        s_mmc5.exram_mode, s_mmc5.in_frame, runtime_frame_scanline(), g_ppumask, runtime_get_vblank_depth());
         }
         mmc5_reg_write(&s_mmc5, addr, val);
         if (addr <= 0x5015) apu_mmc5_write(addr, val);

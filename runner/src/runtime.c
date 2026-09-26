@@ -1668,6 +1668,16 @@ void nes_write(uint16_t addr, uint8_t val) {
     bus_tick();
     s_open_bus = val;   /* writes also drive the data bus (open-bus tracking) */
 
+    if (addr >= 0x2000 && addr <= 0x2007) {   /* NESRECOMP_PPUW_TRACE=frame_from: every PPU register write with context */
+        static int s_pw = -2;
+        if (s_pw == -2) { const char *e = getenv("NESRECOMP_PPUW_TRACE"); s_pw = e ? atoi(e) : -1; }
+        if (s_pw >= 0 && (long long)g_frame_count >= s_pw && addr != 0x2007 && addr != 0x2004) {
+            static long s_pw_lines;
+            if (s_pw_lines++ < 3000)
+                fprintf(stderr, "[PPUW] f=%llu $%04X=%02X in_irq=%d depth=%d pc=$%04X\n", (unsigned long long)g_frame_count, addr, val,
+                        s_in_irq, s_vblank_depth, s_guest_pc);
+        }
+    }
     {   /* NESRECOMP_WATCHW=0020: log every CPU write to that address with the guest pc that is executing */
         static int s_ww = -1; static uint16_t s_ww_addr; static long s_ww_lines;
         if (s_ww < 0) { const char *e = getenv("NESRECOMP_WATCHW"); s_ww = e ? 1 : 0; if (e) s_ww_addr = (uint16_t)strtoul(e, NULL, 16); }
