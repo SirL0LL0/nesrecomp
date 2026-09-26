@@ -95,6 +95,7 @@ def build(rom_path, outdir, covs):
             os.remove(os.path.join(outdir, f))
 
     table = []      # (unit, win, off, ninsn, name)
+    ctl = []        # (unit, win, off, opcode, op1, op2): every JSR/JMP/RTS/RTI/BRK the interpreter has to execute
     codebits = bytearray(rom.nunits * 1024)
     n_insn = 0
     for u in range(rom.nunits):
@@ -118,9 +119,15 @@ def build(rom_path, outdir, covs):
                 leaders.add(o)
             if prev_end is not None and prev_end == o and prevname == "JSR":
                 leaders.add(o)
+            if name in BRANCH or name in STACK_LIFT:      # the block returns here: the next instruction must be an entry too,
+                leaders.add(o + cs[o])                    # otherwise the interpreter runs it until the next leader
             prev_end = o + cs[o]
             prev_term = name in ("RTS", "RTI", "JMP")
             prevname = name
+        for o in offs:
+            if OPS[d[o]][0] in CONTROL:
+                ops3 = list(d[o + 1:o + cs[o]]) + [0, 0]
+                ctl.append((u, win, o, d[o], ops3[0], ops3[1]))
         lines = ['#include "nes_blocks.h"', ""]
         for L in sorted(leaders):
             if L not in cs:
@@ -178,7 +185,11 @@ def build(rom_path, outdir, covs):
             if i % 32 == 0: f.write("\n")
             f.write("%d," % b)
         f.write("\n};\n\n")
-        f.write("void nes_mmc5_blocks_init(void) {\n    nes_blocks_install(s_tab, %d, s_codebits, %d);\n}\n" % (len(table), rom.nunits))
+        f.write("static const NesCtlEntry s_ctl[] = {\n")
+        for u, win, off, op, a, b in ctl:
+            f.write("    {%d, %d, 0x%04X, 0x%02X, 0x%02X, 0x%02X},\n" % (u, win, off, op, a, b))
+        f.write("};\n\n")
+        f.write("void nes_mmc5_blocks_init(void) {\n    nes_blocks_install(s_tab, %d, s_codebits, %d);\n    nes_blocks_install_ctl(s_ctl, %d);\n}\n" % (len(table), rom.nunits, len(ctl)))
     ncode = sum(len(c) for c in code.values())
     print("istruzioni tradotte: %d in %d blocchi (istruzioni nel codice trovato: %d)" % (n_insn, len(table), ncode))
 

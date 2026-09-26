@@ -246,7 +246,9 @@ static const NesBlockEntry *s_blk_by_unit[BLK_UNITS][8192];  /* lazily filled lo
 static int                  s_blk_on = 0;
 static uint8_t              s_blk_miss[BLK_UNITS * 1024];   /* interpreted instr outside the translated set */
 static uint8_t              s_blk_miss_seen_entry[BLK_UNITS * 1024];
-static uint64_t s_blk_instrs = 0, s_blk_runs = 0, s_int_known = 0, s_int_miss = 0, s_int_dyn = 0;
+static uint64_t s_blk_instrs = 0, s_blk_runs = 0, s_int_known = 0, s_int_miss = 0, s_int_dyn = 0, s_int_ctrl = 0;
+static uint64_t s_ctl_table_hits = 0, s_ctl_decoded = 0;
+static int s_note_ctrl = 0;   /* the instruction being noted is JSR/JMP/RTS/RTI/BRK (block boundaries: control flow stays in interp.c) */
 static uint32_t *s_int_hist = NULL;      /* [unit<<13 | off] instructions run by the pure interpreter (NESRECOMP_INTERP_HIST=N prints the top N) */
 
 static void hist_report(void) {
@@ -271,6 +273,10 @@ static void blocks_report(void) {
     fprintf(stderr, "[blocks] translated-block instrs=%llu (runs=%llu) | interpreted: in-translated-set=%llu MISS=%llu (distinct addrs %u) RAM/WRAM=%llu\n",
             (unsigned long long)s_blk_instrs, (unsigned long long)s_blk_runs, (unsigned long long)s_int_known,
             (unsigned long long)s_int_miss, distinct, (unsigned long long)s_int_dyn);
+    fprintf(stderr, "[blocks] instructions the executor read and decoded from ROM: %llu; control transfers taken from the table: %llu\n",
+            (unsigned long long)s_ctl_decoded, (unsigned long long)s_ctl_table_hits);
+    fprintf(stderr, "[blocks] of the interpreted instructions in the translated set, %llu are control transfers (JSR/JMP/RTS/RTI/BRK); other code the interpreter had to decode: %llu\n",
+            (unsigned long long)s_int_ctrl, (unsigned long long)(s_int_known - s_int_ctrl + s_int_miss + s_int_dyn));
     {   /* where the guest instructions actually ran: NB_STEP is called by decompiled functions and by blocks alike */
         uint64_t total = s_stats.instrs_total, interp = s_int_known + s_int_miss + s_int_dyn;
         uint64_t dec = total > s_blk_instrs + interp ? total - s_blk_instrs - interp : 0;
@@ -292,6 +298,37 @@ static void blocks_report(void) {
             fclose(f);
         }
     }
+}
+
+static const NesCtlEntry *s_ctl_by_unit[BLK_UNITS][8192];
+static int s_ctl_n = 0;
+
+void nes_blocks_install_ctl(const NesCtlEntry *tab, int n) {
+    uint32_t prg_size = 0;
+    const uint8_t *prg = mapper_get_prg_raw(&prg_size);
+    int good = 0;
+    memset(s_ctl_by_unit, 0, sizeof s_ctl_by_unit);
+    for (int i = 0; i < n; i++) {
+        uint32_t o = ((uint32_t)tab[i].unit << 13) | tab[i].off;
+        /* the operand bytes must match the ROM that is running (translated ROMs patch code) */
+        if (prg && o + 3 <= prg_size && prg[o] == tab[i].op &&
+            (g_opcode_table[tab[i].op].size < 2 || prg[o + 1] == tab[i].a) &&
+            (g_opcode_table[tab[i].op].size < 3 || prg[o + 2] == tab[i].b)) {
+            s_ctl_by_unit[tab[i].unit][tab[i].off] = &tab[i];
+            good++;
+        }
+    }
+    s_ctl_n = good;
+    fprintf(stderr, "[blocks] %d/%d control transfers match this ROM (executed from the table, no decode)\n", good, n);
+}
+
+static inline const NesCtlEntry *ctl_lookup(uint16_t pc) {
+    if (!s_ctl_n || pc < 0x8000) return NULL;
+    int w = (pc - 0x8000) >> 13;
+    int unit = g_mmc5_win_bank8k[w];
+    if (unit < 0 || unit >= BLK_UNITS) return NULL;
+    const NesCtlEntry *c = s_ctl_by_unit[unit][pc & 0x1FFF];
+    return (c && c->win == w) ? c : NULL;
 }
 
 void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits, int nunits) {
@@ -396,7 +433,7 @@ static void blk_note_interp(uint16_t pc, int is_entry) {
     if (unit < 0 || unit >= BLK_UNITS) { s_int_dyn++; return; }
     unsigned off = pc & 0x1FFF;
     if (s_int_hist) s_int_hist[((unsigned)unit << 13) | off]++;
-    if (s_blk_code[unit * 1024 + (off >> 3)] & (1u << (off & 7))) { s_int_known++; return; }
+    if (s_blk_code[unit * 1024 + (off >> 3)] & (1u << (off & 7))) { s_int_known++; if (s_note_ctrl) s_int_ctrl++; return; }
     s_int_miss++;
     s_blk_miss[unit * 1024 + (off >> 3)] |= (uint8_t)(1u << (off & 7));
     if (is_entry) s_blk_miss_seen_entry[unit * 1024 + (off >> 3)] |= (uint8_t)(1u << (off & 7));
@@ -558,10 +595,28 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
             }
         }
 
-        uint8_t opcode = interp_fetch(ipc);
+        uint8_t opcode, op1, op2;
+        {   const NesCtlEntry *ce = (s_blk_on && !max_steps) ? ctl_lookup(ipc) : NULL;
+            if (ce) { opcode = ce->op; op1 = ce->a; op2 = ce->b; s_ctl_table_hits++; }
+            else {
+                opcode = interp_fetch(ipc);
+                op1 = (g_opcode_table[opcode].size > 1) ? interp_fetch((uint16_t)(ipc + 1)) : 0;
+                op2 = (g_opcode_table[opcode].size > 2) ? interp_fetch((uint16_t)(ipc + 2)) : 0;
+                s_ctl_decoded++;
+                {   /* NESRECOMP_STRICT=1: log every address the executor had to decode from ROM (code that was never translated);
+                     * NESRECOMP_STRICT=2: stop at the first one. This is what "no interpreter needed" means. */
+                    static int s_strict = -1; static int s_strict_n;
+                    if (s_strict < 0) { const char *e2 = getenv("NESRECOMP_STRICT"); s_strict = e2 ? atoi(e2) : 0; }
+                    if (s_strict && s_blk_on && !max_steps && s_strict_n < 200) {
+                        s_strict_n++;
+                        fprintf(stderr, "[strict] untranslated code executed at $%04X (op %02X, window unit %d, frame %llu)\n", ipc, opcode,
+                                ipc >= 0x8000 ? g_mmc5_win_bank8k[(ipc - 0x8000) >> 13] : -1, (unsigned long long)g_frame_count);
+                        if (s_strict >= 2) { fflush(stderr); exit(3); }
+                    }
+                }
+            }
+        }
         const OpcodeEntry *e = &g_opcode_table[opcode];
-        uint8_t op1 = (e->size > 1) ? interp_fetch((uint16_t)(ipc + 1)) : 0;
-        uint8_t op2 = (e->size > 2) ? interp_fetch((uint16_t)(ipc + 2)) : 0;
         uint16_t abs16 = (uint16_t)(op1 | ((uint16_t)op2 << 8));
 
         /* NMI is sampled between instructions (mirrors codegen's per-insn call). */
@@ -610,7 +665,7 @@ static NesInterpExit interp_run_ex(uint16_t entry, int stop_on_stack_lift,
         }
         s_stats.instrs_total++;
         s_stats.instrs_this_frame++;
-        if (s_blk_n) blk_note_interp(ipc, 0);
+        if (s_blk_n) { s_note_ctrl = (e->mnemonic == MN_JSR || e->mnemonic == MN_JMP || e->mnemonic == MN_RTS || e->mnemonic == MN_RTI || e->mnemonic == MN_BRK); blk_note_interp(ipc, 0); }
         if (this_run < UINT32_MAX) this_run++;
 
         uint16_t next = (uint16_t)(ipc + e->size); /* default sequential advance */

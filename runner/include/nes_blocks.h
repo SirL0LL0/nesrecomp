@@ -37,6 +37,11 @@ static inline uint32_t nes_fnv1a(const uint8_t *p, uint32_t n, uint32_t h) {
 }
 #define NES_FNV_INIT 2166136261u
 
+/* Control transfers (JSR/JMP/RTS/RTI/BRK) the executor performs itself: the generator lists each one with its bytes, so the
+ * executor does not have to read and decode ROM to run them. Checked against the loaded ROM at install time. */
+typedef struct { uint8_t unit, win; uint16_t off; uint8_t op, a, b; } NesCtlEntry;
+void nes_blocks_install_ctl(const NesCtlEntry *tab, int n);
+
 /* codebits: nunits * 1024 bytes; bit set = an instruction starts there in the translated code set. */
 void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits, int nunits);
 

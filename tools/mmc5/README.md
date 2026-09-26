@@ -78,5 +78,20 @@ MMC5 audio state is not part of save states (games rewrite the registers); the s
 are not verified against hardware; the mid-frame counter reset assumes the per-frame renderer clocks the mapper in step with the IRQ handler.
 
 Validated on Just Breed (PRG mode 3, ExAttribute, extra sound registers seen in use) and Castlevania III (intro).
-Not done yet: translating the interpreter "islands" (inline-argument routines, computed dispatch) so no interpreter is
-needed at run time.
+
+## Islands (routines the decompiler cannot write as C functions) - how they run without an interpreter
+
+Inline-argument routines, jump-table dispatchers, and the "hard" routines (TSX/TXS, pulled return addresses, RTS used as a jump)
+are executed as *translated basic blocks* (`generated/mmc5/blocks`): the block C code works on the real 6502 stack in `g_ram`,
+so return-address games need no special modelling. The executor (`interp.c`) only dispatches from block to block and performs the
+control transfers (JSR/JMP/RTS/RTI/BRK) with the S-floor contract; **it does not read or decode ROM** for anything the generator saw:
+every block entry, including the instruction after a conditional branch or PLA/PLP/TXS, and every control transfer (`NesCtlEntry`,
+checked against the loaded ROM at start-up) comes from the generated tables. Just Breed over 14.5M instructions: 79% decompiled
+C, 19.6% blocks, 1.3% control transfers taken from the table, 0 instructions decoded from ROM.
+
+* `NESRECOMP_STRICT=1` logs every address the executor had to decode (code that was never translated); `=2` stops at the first.
+  Feed those addresses back with `NESRECOMP_BLOCK_MISS_FILE` -> `analysis/seeds.txt` (or more coverage) and regenerate.
+* A block table entry and a decompiled function both carry an FNV hash of their bytes: a translated ROM that patches code falls back to
+  the decode path for exactly those routines.
+* Code that is not in the tables (never executed while recording coverage and not found by static analysis) and code running from RAM
+  still falls back to the decode-based interpreter; that is the only place the interpreter is still needed.
