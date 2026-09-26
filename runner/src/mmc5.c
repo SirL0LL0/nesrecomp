@@ -125,19 +125,26 @@ static uint8_t mmc5_cpu_read_raw(const Mmc5 *m, uint16_t addr) {
 
 uint8_t mmc5_cpu_read(const Mmc5 *m, uint16_t addr) {
     uint8_t b = mmc5_cpu_read_raw(m, addr);
-    if (m->gg_n && addr >= 0x8000)
+    if (m->gg_n && addr >= 0x8000 && m->gg_flag[addr - 0x8000])
         for (int i = 0; i < m->gg_n; i++)
             if (m->gg_addr[i] == addr && (m->gg_cmp[i] < 0 || m->gg_cmp[i] == b)) return m->gg_val[i];
     return b;
 }
 
-void mmc5_gg_clear(Mmc5 *m) { m->gg_n = 0; }
+void mmc5_gg_clear(Mmc5 *m) { m->gg_n = 0; memset(m->gg_flag, 0, sizeof m->gg_flag); }
 
 int mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp) {
-    if (m->gg_n >= 4 || addr < 0x8000) return 0;
+    if (m->gg_n >= MMC5_MAX_GG || addr < 0x8000) return 0;
     m->gg_addr[m->gg_n] = addr; m->gg_val[m->gg_n] = val; m->gg_cmp[m->gg_n] = (int16_t)cmp;
+    m->gg_flag[addr - 0x8000] = 1;
     m->gg_n++;
     return 1;
+}
+
+int mmc5_gg_overlaps(const Mmc5 *m, uint16_t start, uint32_t nbytes) {
+    for (int i = 0; i < m->gg_n; i++)
+        if (m->gg_addr[i] >= start && (uint32_t)m->gg_addr[i] < (uint32_t)start + nbytes) return 1;
+    return 0;
 }
 
 void mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val) {

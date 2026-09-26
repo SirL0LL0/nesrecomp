@@ -107,10 +107,19 @@ static int mmc5_ss_set(const uint8_t *buf, int len) {
     mmc5_apply_chr();
     return 1;
 }
-void mapper_gg_clear(void) { mmc5_gg_clear(&s_mmc5); s_mmc5_bufs_dirty = 1; }
+/* Translated blocks and decompiled functions contain the ORIGINAL code bytes: while any Game Genie patch is active the
+ * executor skips translated code that covers a patched address (the patched bytes then come from the decode path) and
+ * the decompiled tier is switched off. */
+int g_gg_active = 0;
+void mapper_gg_clear(void) { mmc5_gg_clear(&s_mmc5); s_mmc5_bufs_dirty = 1; g_gg_active = 0; }
 int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp) {
     s_mmc5_bufs_dirty = 1;
-    return s_mapper_type == 5 && mmc5_gg_add(&s_mmc5, addr, val, cmp);
+    int ok = s_mapper_type == 5 && mmc5_gg_add(&s_mmc5, addr, val, cmp);
+    if (ok) g_gg_active = 1;
+    return ok;
+}
+int  mapper_gg_overlaps(uint16_t start, uint32_t nbytes) {
+    return s_mapper_type == 5 && mmc5_gg_overlaps(&s_mmc5, start, nbytes);
 }
 
 static void mmc5_publish_windows(void) {

@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #define MMC5_MAX_WRAM 0x10000
+#define MMC5_MAX_GG 512      /* Game Genie patches active at once */
 
 typedef struct Mmc5 {
     const uint8_t *prg;      /* PRG ROM, prg_size bytes */
@@ -49,11 +50,13 @@ typedef struct Mmc5 {
     int8_t  wram_map[8];               /* RAM bank (0-7) -> 8KB block index in the WRAM buffer, -1 = none */
     uint8_t wram_chips_kb[2];          /* the two PRG-RAM chips: 0, 8 or 32 (KB) */
 
-    /* Game Genie style ROM patches: read of $8000+ returns gg_val when the mapped byte == gg_cmp (-1: always). */
+    /* Game Genie style ROM patches: read of $8000+ returns gg_val when the mapped byte == gg_cmp (-1: always).
+     * gg_flag[addr - $8000] != 0 marks patched CPU addresses so ordinary reads stay cheap. */
     int      gg_n;
-    uint16_t gg_addr[4];
-    uint8_t  gg_val[4];
-    int16_t  gg_cmp[4];
+    uint16_t gg_addr[MMC5_MAX_GG];
+    uint8_t  gg_val[MMC5_MAX_GG];
+    int16_t  gg_cmp[MMC5_MAX_GG];
+    uint8_t  gg_flag[0x8000];
 } Mmc5;
 
 /* wram_buf must hold wram_size bytes (rounded down to a power of two); its content is left untouched. */
@@ -78,6 +81,8 @@ void    mmc5_cpu_write(Mmc5 *m, uint16_t addr, uint8_t val);
 /* Game Genie patches (up to 4). mmc5_gg_add returns 1 on success. */
 void mmc5_gg_clear(Mmc5 *m);
 int  mmc5_gg_add(Mmc5 *m, uint16_t addr, uint8_t val, int cmp);
+/* 1 if a patch address lies in [start, start+nbytes) (CPU addresses): translated code covering it must not run. */
+int  mmc5_gg_overlaps(const Mmc5 *m, uint16_t start, uint32_t nbytes);
 
 /* Serialize / restore the mapper registers and ExRAM (no pointers): used by the savestate hook. Returns bytes / 1. */
 int  mmc5_state_get(const Mmc5 *m, uint8_t *buf, int cap);

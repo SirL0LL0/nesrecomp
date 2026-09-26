@@ -328,7 +328,9 @@ static inline const NesCtlEntry *ctl_lookup(uint16_t pc) {
     int unit = g_mmc5_win_bank8k[w];
     if (unit < 0 || unit >= BLK_UNITS) return NULL;
     const NesCtlEntry *c = s_ctl_by_unit[unit][pc & 0x1FFF];
-    return (c && c->win == w) ? c : NULL;
+    if (!c || c->win != w) return NULL;
+    if (g_gg_active && mapper_gg_overlaps(pc, 3)) return NULL;
+    return c;
 }
 
 void nes_blocks_install(const NesBlockEntry *tab, int n, const uint8_t *codebits, int nunits) {
@@ -387,7 +389,7 @@ void nes_decomp_install(const NesDecompEntry *tab, int n, uint8_t *valid) {
 }
 
 NesDecompFn nes_decomp_lookup(uint16_t addr) {
-    if (!s_dec_on || addr < 0x8000) return NULL;
+    if (!s_dec_on || addr < 0x8000 || g_gg_active) return NULL;   /* Game Genie patches change code: no compiled copies */
     int w = (addr - 0x8000) >> 13;
     int unit = g_mmc5_win_bank8k[w];
     if (unit < 0 || unit >= BLK_UNITS) return NULL;
@@ -424,7 +426,9 @@ static inline const NesBlockEntry *blk_lookup(uint16_t pc) {
     int unit = g_mmc5_win_bank8k[w];
     if (unit < 0 || unit >= BLK_UNITS) return NULL;
     const NesBlockEntry *b = s_blk_by_unit[unit][pc & 0x1FFF];
-    return (b && b->win == w) ? b : NULL;
+    if (!b || b->win != w) return NULL;
+    if (g_gg_active && mapper_gg_overlaps(pc, b->nbytes)) return NULL;     /* patched code: decode it instead */
+    return b;
 }
 
 /* Statistics for an instruction the interpreter executes itself. */

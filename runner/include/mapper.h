@@ -33,6 +33,8 @@ void mapper_ppumask_written(uint8_t old_mask, uint8_t new_mask);   /* after a $2
 void mapper_set_wram_size(uint32_t bytes);
 void mapper_gg_clear(void);                                   /* Game Genie ROM patches (MMC5 only) */
 int  mapper_gg_add(uint16_t addr, uint8_t val, int cmp);      /* cmp < 0: no compare byte */
+extern int g_gg_active;                                       /* 1 while any Game Genie patch is installed */
+int  mapper_gg_overlaps(uint16_t start, uint32_t nbytes);     /* a patch address lies in [start, start+nbytes) */
 extern int g_mmc5_win_bank8k[4];
 void mapper_write(uint16_t addr, uint8_t val);
 const uint8_t *mapper_get_switchable_bank(void);
