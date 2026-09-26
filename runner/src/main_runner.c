@@ -1080,6 +1080,9 @@ void nes_vblank_callback(void) {
 
         g_controller1_buttons = btn;
         g_controller2_buttons = (uint8_t)(s2 == 2 ? controller_read_player(2) : 0);
+#if defined(NESRECOMP_GAME_PLAYERS) && NESRECOMP_GAME_PLAYERS < 2
+        g_controller2_buttons = 0;   /* one-player game: a connected pad must not feed the second port (stick drift, idle buttons) */
+#endif
     }
 
 smoke_skip_input:
