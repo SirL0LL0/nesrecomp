@@ -13,6 +13,8 @@ uint8_t *cyc_ram_ptr(void) { return hw.ram; }
 
 void cyc_bus_write(uint16_t addr, uint8_t value) { hw_write(addr, value); }
 
+uint8_t cyc_bus_read(uint16_t addr) { return hw_read(addr); }
+
 /* ---- Save states ---- */
 
 void *hw_apu_state(size_t *size);

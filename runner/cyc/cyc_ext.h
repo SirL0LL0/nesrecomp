@@ -19,6 +19,11 @@ uint8_t *cyc_ram_ptr(void);   /* the 2KB of CPU RAM ($0000-$07FF), writable */
  * PRG-RAM, mapper registers...). Safe to call between frames (it does not touch the clock). */
 void cyc_bus_write(uint16_t addr, uint8_t value);
 
+/* The matching read: whatever the CPU would see at this address (cartridge WRAM/ROM, mapper registers, PPU/APU
+ * register side effects included). For inspecting game state from a diagnostic hook; do not use for cheats
+ * (a real cheat only ever writes). */
+uint8_t cyc_bus_read(uint16_t addr);
+
 bool cyc_state_save(const char *path);
 bool cyc_state_load(const char *path);
 
