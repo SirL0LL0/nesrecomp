@@ -45,6 +45,16 @@ extern "C" {
 
 typedef void (*NESModActivationCallback)(void);
 
+/*
+ * Optional: let the game define what "the same ROM" means for package targets, in place of the default (the CRC32
+ * of every byte after the iNES header). A game whose ROM legitimately varies byte for byte between builds it still
+ * considers "the same" (e.g. a translation patch that only changes text/font banks) sets one: it receives the
+ * selected file's path and must write an 8-digit lowercase hex identity into out (9 bytes incl. NUL) and return 1,
+ * or return 0 if the file is not a supported image. Register from a NES_MOD_CONSTRUCTOR.
+ */
+typedef int (*NESModRomIdentityFn)(const char* rom_path, char out[9]);
+void nes_mod_set_rom_identity(NESModRomIdentityFn fn);
+
 struct RecompLauncherCModProvider;
 
 int nes_mod_runtime_initialize_c(const char* root,

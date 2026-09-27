@@ -1868,8 +1868,20 @@ bool install_archive(Runtime& runtime, const fs::path& archive,
     return true;
 }
 
+/* Set by nes_mod_set_rom_identity (below); nullptr = use the default whole-payload CRC32. */
+static NESModRomIdentityFn s_rom_identity_fn = nullptr;
+
 bool crc32_file(const fs::path& path, std::string& out,
                 std::string* error) {
+    if (s_rom_identity_fn) {
+        char digest[9] = {0};
+        if (!s_rom_identity_fn(path.string().c_str(), digest)) {
+            set_error(error, "selected image is not a recognized ROM");
+            return false;
+        }
+        out = digest;
+        return true;
+    }
     std::vector<uint8_t> bytes;
     if (!read_file(path, bytes, error)) return false;
     if (bytes.size() <= 16 ||
@@ -2540,6 +2552,10 @@ extern "C" void nes_mod_set_local_only(const char* name, int required) {
 extern "C" const char* nes_mod_local_only_reason(void) {
     return NESRecomp::local_only_features.empty() ? nullptr :
         NESRecomp::local_only_features.begin()->c_str();
+}
+
+extern "C" void nes_mod_set_rom_identity(NESModRomIdentityFn fn) {
+    NESRecomp::s_rom_identity_fn = fn;
 }
 
 extern "C" int nes_mod_register_activation_plugin(
