@@ -26,6 +26,7 @@ recomp_target_runtime_ui_sdlrenderer2(MyGame)
 ## Keys
 Pad: keybinds.ini (created on first run). Esc: menu (pauses). F1-F12: load slot, Shift+F1-F12: save slot
 (`savestates/slotNN.sav`, next to the exe). Tab (hold): fast forward. Ctrl+F12: screenshot. Alt+Enter: fullscreen.
+Ctrl+F11 (or menu: Graphics > Statistics overlay): overlay with fps, compiled/interpreter share of CPU time.
 
 ## Cheats
 * RAM: `cyc_ram_ptr()[addr] = value` before each frame (from `on_frame`).

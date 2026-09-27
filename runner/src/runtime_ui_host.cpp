@@ -1,4 +1,4 @@
-﻿/*
+/*
  * runtime_ui_host.cpp -- in-game menu host for the NES runner (see runtime_ui_host.h).
  *
  * Rendering follows recomp-ui docs/RUNTIME_UI.md for SDL_Renderer hosts: the ImGui frame is drawn at the renderer
@@ -25,12 +25,17 @@ RecompRuntimeUi *s_ui = nullptr;
 bool s_imgui_owned = false;
 bool s_ready = false;
 int s_state_slot = 1;
+int s_overlay = 0;
 
 #define KEY_EXIT "system.exit"
+#define KEY_OVERLAY "graphics.stats_overlay"
 
 const RecompRuntimeUiItem s_extra_items[] = {
     { KEY_EXIT, "System", "Exit game", "Close the game and return to the desktop.",
       RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, nullptr, 0, nullptr },
+    { KEY_OVERLAY, "Graphics", "Statistics overlay",
+      "Show compiled/interpreter CPU share and frame rate over the game.",
+      RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, nullptr, 0, nullptr },
 };
 
 int is_key(const RecompRuntimeUiItem *item, const char *key) {
@@ -43,6 +48,7 @@ int get_value(void *, const RecompRuntimeUiItem *item, int *out) {
     else if (is_key(item, RECOMP_RUNTIME_UI_KEY_INTEGER_SCALE)) *out = g_nes_config.integer_scale != 0;
     else if (is_key(item, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER)) *out = g_nes_config.linear_filter != 0;
     else if (is_key(item, RECOMP_RUNTIME_UI_KEY_VOLUME))       *out = g_nes_config.volume;
+    else if (is_key(item, KEY_OVERLAY))                        *out = s_overlay;
     else return 0;   /* unknown key: fail loudly rather than invent a value */
     return 1;
 }
@@ -59,6 +65,9 @@ int set_value(void *, const RecompRuntimeUiItem *item, int value) {
         g_nes_config.linear_filter = value != 0;
     } else if (is_key(item, RECOMP_RUNTIME_UI_KEY_VOLUME)) {
         g_nes_config.volume = value < 0 ? 0 : value > 100 ? 100 : value;   /* read by the mixer every frame */
+    } else if (is_key(item, KEY_OVERLAY)) {
+        s_overlay = value != 0;
+        return 1;
     } else {
         return 0;
     }
@@ -263,3 +272,27 @@ extern "C" void nes_runtime_ui_shutdown(void) {
     s_ready = false;
 }
 
+extern "C" int nes_runtime_ui_overlay_enabled(void) { return s_overlay; }
+extern "C" void nes_runtime_ui_set_overlay(int on) { s_overlay = on != 0; }
+
+extern "C" void nes_runtime_ui_draw_overlay(const char *text) {
+    if (!s_ready || !s_overlay || !text || !s_host.renderer) return;
+    SDL_Renderer *r = s_host.renderer;
+    /* Same rule as the menu: the ImGui frame is laid out in output pixels, so drop the game's logical size for this draw. */
+    int lw = 0, lh = 0;
+    SDL_RenderGetLogicalSize(r, &lw, &lh);
+    SDL_RenderSetLogicalSize(r, 0, 0);
+    ImGui_ImplSDLRenderer2_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(8, 8));
+    ImGui::SetNextWindowBgAlpha(0.65f);
+    ImGui::Begin("##stats", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::TextUnformatted(text);
+    ImGui::End();
+    ImGui::Render();
+    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), r);
+    SDL_RenderSetLogicalSize(r, lw, lh);
+}

@@ -254,6 +254,50 @@ static void write_miss_once(void) {
     write_miss_log(s_miss_out);
 }
 
+/* Statistics overlay text: which machine ran the last second, and how much of the CPU time each part took. */
+typedef struct {
+    Uint64 mark;
+    uint64_t cycles, native, rom, ram, other;
+    double fps, p_native, p_rom, p_ram, p_other;
+    int frames;
+    char text[512];
+} Stats;
+
+static void stats_update(Stats *s, uint64_t frame, Uint64 now, Uint64 freq) {
+    s->frames++;
+    if (now - s->mark >= freq) {
+        double secs = (double)(now - s->mark) / (double)freq;
+        uint64_t c = cyc_cycle_count();
+        uint64_t dc = c - s->cycles;
+        double k = dc ? 100.0 / (double)dc : 0.0;
+        s->fps = s->frames / secs;
+        s->p_native = (double)(cyc_run_native_cycles - s->native) * k;
+        s->p_rom = (double)(cyc_run_interp_rom_cycles - s->rom) * k;
+        s->p_ram = (double)(cyc_run_interp_ram_cycles - s->ram) * k;
+        s->p_other = (double)(cyc_run_interp_other_cycles - s->other) * k;
+        s->cycles = c;
+        s->native = cyc_run_native_cycles;
+        s->rom = cyc_run_interp_rom_cycles;
+        s->ram = cyc_run_interp_ram_cycles;
+        s->other = cyc_run_interp_other_cycles;
+        s->mark = now;
+        s->frames = 0;
+    }
+    uint64_t tot = cyc_cycle_count();
+    double tp = tot ? 100.0 * (double)cyc_run_native_cycles / (double)tot : 0.0;
+    snprintf(s->text, sizeof s->text,
+             "%.1f fps   frame %llu\n"
+             "Esecuzione: %s\n"
+             "CPU, ultimo secondo:\n"
+             "  codice compilato   %5.1f%%\n"
+             "  interprete (ROM)   %5.1f%%   codice non compilato\n"
+             "  interprete (RAM)   %5.1f%%   codice in RAM\n"
+             "  interprete (altro) %5.1f%%\n"
+             "Compilato dall'avvio: %.1f%%",
+             s->fps, (unsigned long long)frame, cyc_run_native ? "compilato + interprete" : "solo interprete",
+             s->p_native, s->p_rom, s->p_ram, s->p_other, tp);
+}
+
 static SDL_Window *s_win;
 static SDL_Renderer *s_ren;
 static SDL_Texture *s_tex;
@@ -359,6 +403,7 @@ int cyc_sdl_main(const char *title, int scale) {
     host.title = game->name;
     host.subtitle = "NES";
     if (!nes_runtime_ui_init(&host)) fprintf(stderr, "[RuntimeUI] not available; Esc will quit\n");
+    if (getenv("CYC_TEST_OVERLAY")) nes_runtime_ui_set_overlay(1);   /* scripted checks: start with the overlay on */
 
     /* Live interpreter-miss log for growing the native coverage: create a file named miss.on next to the exe. */
     char miss_flag[600];
@@ -379,6 +424,9 @@ int cyc_sdl_main(const char *title, int scale) {
     const Uint64 freq = SDL_GetPerformanceFrequency();
     Uint64 next = SDL_GetPerformanceCounter();
     uint64_t frame = 0;
+    Stats stats;
+    memset(&stats, 0, sizeof stats);
+    stats.mark = SDL_GetPerformanceCounter();
     int shot = 0;
     int running = 1;
     const char *tm = getenv("CYC_TEST_MENU_AT");
@@ -399,7 +447,9 @@ int cyc_sdl_main(const char *title, int scale) {
             if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
                 SDL_Keymod mod = ev.key.keysym.mod;
                 int slot = slot_from_key(ev.key.keysym.scancode);
-                if (slot && (mod & KMOD_CTRL) && slot == 12) {
+                if (slot == 11 && (mod & KMOD_CTRL)) {   /* Ctrl+F11: statistics overlay */
+                    nes_runtime_ui_set_overlay(!nes_runtime_ui_overlay_enabled());
+                } else if (slot && (mod & KMOD_CTRL) && slot == 12) {
                     char name[700];
                     snprintf(name, sizeof name, "%scyc_shot_%04d.png", g_exe_dir, shot++);
                     if (cyc_write_png(name, cyc_frame_argb(), 256, 240)) printf("saved %s\n", name);
@@ -447,6 +497,8 @@ int cyc_sdl_main(const char *title, int scale) {
         SDL_UpdateTexture(s_tex, NULL, cyc_frame_argb(), 256 * 4);
         SDL_RenderClear(s_ren);
         SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+        stats_update(&stats, frame, SDL_GetPerformanceCounter(), freq);
+        nes_runtime_ui_draw_overlay(stats.text);
         SDL_RenderPresent(s_ren);
 
         Uint64 now = SDL_GetPerformanceCounter();

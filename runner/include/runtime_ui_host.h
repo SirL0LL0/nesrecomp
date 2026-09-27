@@ -1,4 +1,4 @@
-﻿/*
+/*
  * runtime_ui_host.h -- adapter between the NES runner and recomp-ui's in-game menu (recomp_runtime_ui.h).
  *
  * recomp-ui owns the menu model and its ImGui presentation; the host (this runner) owns the event loop, live
@@ -36,6 +36,13 @@ int nes_runtime_ui_init(const NesRuntimeUiHost *host);
 int nes_runtime_ui_event(const SDL_Event *ev);
 int nes_runtime_ui_active(void);   /* 1 once nes_runtime_ui_init succeeded */
 void nes_runtime_ui_shutdown(void);
+
+/* Statistics overlay: a small text box drawn over the game. The menu has a switch for it (Graphics > Statistics overlay);
+ * the host may also flip it with a hotkey. nes_runtime_ui_draw_overlay draws `text` (\n separated lines) into the current
+ * renderer, after the game frame and before SDL_RenderPresent. Does nothing while the overlay is off. */
+int  nes_runtime_ui_overlay_enabled(void);
+void nes_runtime_ui_set_overlay(int on);
+void nes_runtime_ui_draw_overlay(const char *text);
 
 #ifdef __cplusplus
 }
