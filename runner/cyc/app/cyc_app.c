@@ -244,6 +244,16 @@ int main(int argc, char **argv) {
 
 #define AUDIO_RATE 48000
 
+static char s_miss_out[600];
+static int s_miss_done;
+
+/* Also runs when the menu's Exit (or closing the window in the menu) calls exit() instead of returning. */
+static void write_miss_once(void) {
+    if (s_miss_done || !cyc_run_miss || !s_miss_out[0]) return;
+    s_miss_done = 1;
+    write_miss_log(s_miss_out);
+}
+
 static SDL_Window *s_win;
 static SDL_Renderer *s_ren;
 static SDL_Texture *s_tex;
@@ -351,15 +361,16 @@ int cyc_sdl_main(const char *title, int scale) {
     if (!nes_runtime_ui_init(&host)) fprintf(stderr, "[RuntimeUI] not available; Esc will quit\n");
 
     /* Live interpreter-miss log for growing the native coverage: create a file named miss.on next to the exe. */
-    char miss_flag[600], miss_out[600];
+    char miss_flag[600];
     exe_path(miss_flag, sizeof miss_flag, "miss.on");
-    exe_path(miss_out, sizeof miss_out, "cycle_seeds_played.txt");
+    exe_path(s_miss_out, sizeof s_miss_out, "cycle_seeds_played.txt");
     FILE *mf = fopen(miss_flag, "rb");
     int want_miss = mf != NULL;
     if (mf) fclose(mf);
     if (want_miss) {
         cyc_run_miss = (uint32_t *)calloc(cyc_run_miss_slots(), sizeof(uint32_t));
-        printf("[miss] recording interpreted ROM addresses -> %s\n", miss_out);
+        printf("[miss] recording interpreted ROM addresses -> %s\n", s_miss_out);
+        atexit(write_miss_once);
     }
 
     if (game->on_init) game->on_init();
@@ -406,7 +417,7 @@ int cyc_sdl_main(const char *title, int scale) {
         }
         if (!running) break;
 
-        if (test_quit_at >= 0 && (long)frame >= test_quit_at) break;
+        if (test_quit_at >= 0 && (long)frame >= test_quit_at) exit(0);   /* like the menu's Exit: exit(), not a return */
         if (test_menu_at >= 0 && (long)frame == test_menu_at) {   /* CYC_TEST_MENU_AT=<frame>: open the menu like Esc */
             SDL_Event e;
             memset(&e, 0, sizeof e);
@@ -450,7 +461,7 @@ int cyc_sdl_main(const char *title, int scale) {
         }
     }
 
-    if (want_miss && cyc_run_miss) write_miss_log(miss_out);
+    write_miss_once();
     nes_runtime_ui_shutdown();
     controller_shutdown();
     if (dev) SDL_CloseAudioDevice(dev);
