@@ -163,12 +163,20 @@ typedef struct {
 extern HwMachine hw;
 extern HwCart    hw_cart;
 
+/* Game Genie patches on PRG ROM reads (cyc_ext.c): while any is installed, hw_gg_flag marks the CPU addresses
+ * they cover. The recompiled code folds ROM bytes to constants, so the host runs interpreted while a patch is active. */
+extern uint32_t hw_gg_count;
+extern uint8_t  hw_gg_flag[0x8000];
+uint8_t hw_gg_apply(uint16_t addr, uint8_t value);
+void    hw_gg_reset(void);
+bool    hw_gg_install(uint16_t addr, uint8_t value, int compare);
 /* PRG ROM as the CPU sees it at addr ($8000-$FFFF). */
 HW_ALWAYS_INLINE uint8_t hw_cart_prg_read(uint16_t addr)
 {
     uint32_t offset=hw_cart.prg_off[(addr >> 12)&7] | (addr&4095);
     if (offset&MMC5_PRG_OPEN) return hw.data_bus;
     if (offset&MMC5_PRG_RAM) return hw_cart.wram[offset&0x1ffff];
+    if (hw_gg_count && hw_gg_flag[addr & 0x7FFF]) return hw_gg_apply(addr, hw_cart.prg[offset]);
     return hw_cart.prg[offset];
 }
 

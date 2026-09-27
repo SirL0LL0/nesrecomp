@@ -1338,3 +1338,8 @@ void ppu_state_dump(void *file)
         fputc('\n', f);
     }
 }
+
+/* Whole-machine snapshots (cyc_ext.c): the two file-scope flags that are not in ppu. */
+void hw_ppu_extra_save(uint8_t out[2]) { out[0] = sm_rest; out[1] = dot_kind; }
+void hw_ppu_extra_load(const uint8_t in[2]) { sm_rest = in[0] != 0; dot_kind = in[1]; }
+

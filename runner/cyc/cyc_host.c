@@ -58,6 +58,10 @@
 #include "cyc_recomp.h"
 #include "cyc_run.h"
 #endif
+#ifdef CYC_APP_HOOKS
+void cyc_app_headless_init(void);
+void cyc_app_headless_frame(long frame);
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,7 +91,7 @@ static uint8_t *read_file(const char *path, size_t *size) {
 }
 
 #ifndef CYC_ORACLE
-static void write_miss_log(const char *path) {
+void write_miss_log(const char *path) {   /* not static: cyc_app.c writes it after an interactive run */
     /* Merge with an existing log so runs accumulate; the recompiler reads the
      * first column (game.toml [game] cycle_seed_file). */
     size_t slots = cyc_run_miss_slots();
@@ -443,6 +447,9 @@ int main(int argc, char **argv) {
         acccoin_spam_init(&spam, prg, (size_t)cart_info.prg_size, spam_page, spam_row, spam_seed, spam_dpad);
     }
     if (input_file && !load_input(input_file)) return 2;
+#ifdef CYC_APP_HOOKS
+    cyc_app_headless_init();   /* cyc_app.c: cheats and state hooks for scripted runs */
+#endif
     long frame = 0;
     for (;;) {
         if (acccoin && drv.done) break;
@@ -451,6 +458,9 @@ int main(int argc, char **argv) {
         if (spam_page >= 0) cyc_set_controller(0, acccoin_spam_tick(&spam, cyc_cpu_ram(), stdout));
         else if (acccoin) cyc_set_controller(0, acccoin_driver_tick(&drv, cyc_cpu_ram()));
         else if (input_count) input_tick(frame);
+#ifdef CYC_APP_HOOKS
+        cyc_app_headless_frame(frame);
+#endif
         cyc_trace_file = (trace_f && frame == trace_frame) ? trace_f : NULL;
 #ifdef CYC_ORACLE
         cyc_oracle_run_frame();

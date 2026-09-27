@@ -790,3 +790,7 @@ void apu_state_dump(void *file)
         fputc('\n', f);
     }
 }
+
+/* Whole-machine snapshots (cyc_ext.c). */
+void *hw_apu_state(size_t *size) { *size = sizeof apu; return &apu; }
+

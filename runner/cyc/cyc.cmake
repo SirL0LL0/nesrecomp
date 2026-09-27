@@ -25,6 +25,7 @@ set(NESRECOMP_CYC_SOURCES
     ${NESRECOMP_CYC_DIR}/cyc_run.c
     ${NESRECOMP_CYC_DIR}/cyc_host.c
     ${NESRECOMP_CYC_DIR}/cyc_accuracycoin.c
+    ${NESRECOMP_CYC_DIR}/cyc_ext.c
     ${NESRECOMP_CYC_DIR}/cyc_png.c
 )
 set(NESRECOMP_CYC_INCLUDE_DIRS ${NESRECOMP_CYC_DIR})

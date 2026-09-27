@@ -1090,3 +1090,30 @@ void hw_cart_state_dump(void *file)
             hw_cart.m.mirror_reg, hw_cart.m.ram_protect, hw_cart.m.irq_latch, hw_cart.m.irq_counter,
             hw_cart.m.irq_reload, hw_cart.m.irq_enable, hw_cart.m.irq_out, hw_cart.m.a12, hw_cart.m.latch);
 }
+
+/* ---- Game Genie patches on PRG ROM reads (see hw_cart_prg_read in hw_internal.h, cyc_ext.h) ---- */
+#define HW_GG_MAX 512
+static struct { uint16_t addr; uint8_t value; int16_t compare; } hw_gg[HW_GG_MAX];
+uint32_t hw_gg_count;
+uint8_t  hw_gg_flag[0x8000];
+
+void hw_gg_reset(void) {
+    hw_gg_count = 0;
+    memset(hw_gg_flag, 0, sizeof hw_gg_flag);
+}
+
+bool hw_gg_install(uint16_t addr, uint8_t value, int compare) {
+    if (addr < 0x8000 || hw_gg_count >= HW_GG_MAX) return false;
+    hw_gg[hw_gg_count].addr = addr;
+    hw_gg[hw_gg_count].value = value;
+    hw_gg[hw_gg_count].compare = (int16_t)compare;
+    hw_gg_count++;
+    hw_gg_flag[addr & 0x7FFF] = 1;
+    return true;
+}
+
+uint8_t hw_gg_apply(uint16_t addr, uint8_t value) {
+    for (uint32_t i = 0; i < hw_gg_count; i++)
+        if (hw_gg[i].addr == addr && (hw_gg[i].compare < 0 || hw_gg[i].compare == value)) return hw_gg[i].value;
+    return value;
+}
