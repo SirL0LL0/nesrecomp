@@ -3,7 +3,6 @@
 
 #include "cpu6502.h"
 #include "cyc_core.h"
-#include "cyc_run.h"
 #include "hw_internal.h"
 
 #include <stdio.h>
@@ -11,21 +10,6 @@
 #include <string.h>
 
 uint8_t *cyc_ram_ptr(void) { return hw.ram; }
-
-/* ---- Game Genie (the table itself is in hw_mapper.c, where the PRG read is) ---- */
-
-void cyc_gg_clear(void) {
-    hw_gg_reset();
-    cyc_run_native = true;
-}
-
-bool cyc_gg_add(uint16_t addr, uint8_t value, int compare) {
-    if (!hw_gg_install(addr, value, compare)) return false;
-    cyc_run_native = false;   /* recompiled code has ROM bytes folded in */
-    return true;
-}
-
-int cyc_gg_count(void) { return (int)hw_gg_count; }
 
 /* ---- Save states ---- */
 

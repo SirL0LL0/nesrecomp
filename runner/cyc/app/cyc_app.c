@@ -486,13 +486,6 @@ void cyc_app_headless_init(void) {
     parse_at("CYC_SAVE_AT", &s_save_at, s_save_file, sizeof s_save_file);
     parse_at("CYC_LOAD_AT", &s_load_at, s_load_file, sizeof s_load_file);
     if (game->on_init) game->on_init();
-    const char *gg = getenv("CYC_TEST_GG");   /* CYC_TEST_GG=<hex addr>:<hex value>[:<hex compare>] (scripted checks) */
-    unsigned ga, gv, gc;
-    if (gg) {
-        int n = sscanf(gg, "%x:%x:%x", &ga, &gv, &gc);
-        if (n >= 2) printf("[gg] test patch $%04X=%02X cmp %d: %s\n", ga, gv, n == 3 ? (int)gc : -1,
-                           cyc_gg_add((uint16_t)ga, (uint8_t)gv, n == 3 ? (int)gc : -1) ? "installed" : "rejected");
-    }
 }
 
 void cyc_app_headless_frame(long frame) {
