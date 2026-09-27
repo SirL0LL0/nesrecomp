@@ -260,8 +260,17 @@ typedef struct {
     uint64_t cycles, native, rom, ram, other;
     double fps, p_native, p_rom, p_ram, p_other;
     int frames;
+    size_t miss_total, miss_last_total;   /* distinct ROM addresses ever seen on the interpreter (cyc_run_miss) */
     char text[512];
 } Stats;
+
+/* Count of non-zero entries in cyc_run_miss (a full scan; called at most once a second, see stats_update). */
+static size_t miss_distinct_count(void) {
+    if (!cyc_run_miss) return 0;
+    size_t n = cyc_run_miss_slots(), count = 0;
+    for (size_t i = 0; i < n; i++) count += cyc_run_miss[i] != 0;
+    return count;
+}
 
 static void stats_update(Stats *s, uint64_t frame, Uint64 now, Uint64 freq) {
     s->frames++;
@@ -282,10 +291,14 @@ static void stats_update(Stats *s, uint64_t frame, Uint64 now, Uint64 freq) {
         s->other = cyc_run_interp_other_cycles;
         s->mark = now;
         s->frames = 0;
+        if (cyc_run_miss) {
+            s->miss_last_total = s->miss_total;
+            s->miss_total = miss_distinct_count();
+        }
     }
     uint64_t tot = cyc_cycle_count();
     double tp = tot ? 100.0 * (double)cyc_run_native_cycles / (double)tot : 0.0;
-    snprintf(s->text, sizeof s->text,
+    int len = snprintf(s->text, sizeof s->text,
              "%.1f fps   frame %llu\n"
              "Esecuzione: %s\n"
              "CPU, ultimo secondo:\n"
@@ -296,6 +309,14 @@ static void stats_update(Stats *s, uint64_t frame, Uint64 now, Uint64 freq) {
              "Compilato dall'avvio: %.1f%%",
              s->fps, (unsigned long long)frame, cyc_run_native ? "compilato + interprete" : "solo interprete",
              s->p_native, s->p_rom, s->p_ram, s->p_other, tp);
+    if (cyc_run_miss && len > 0 && (size_t)len < sizeof s->text) {
+        /* Indirizzi ROM incontrati per la prima volta sull'interprete (miss.on): materia prima per crescere il codice
+         * nativo e il disassemblato (tools/seeds_to_coverage.py). Non sono "funzioni": e' il conteggio grezzo di
+         * indirizzi distinti, la disassemblazione in funzioni resta un'analisi statica separata. */
+        snprintf(s->text + len, sizeof(s->text) - (size_t)len,
+                 "\nIndirizzi nuovi (miss.on): %zu   (+%zu nell'ultimo secondo)",
+                 s->miss_total, s->miss_total > s->miss_last_total ? s->miss_total - s->miss_last_total : 0);
+    }
 }
 
 static SDL_Window *s_win;
