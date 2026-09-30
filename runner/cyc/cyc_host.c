@@ -380,14 +380,17 @@ int main(int argc, char **argv) {
         return 2;
     }
 #ifndef CYC_ORACLE
+    /* A different ROM (another translation, the original...) cannot use the native code, which was generated from
+     * one exact PRG image: run it entirely on the cycle-accurate interpreter instead of refusing to start. */
     if (cyc_native_program_name && nes_cart_identity(&cart_info) != cyc_native_cart_hash) {
-        fprintf(stderr, "Cartridge metadata differs from the compiled program; regenerate native code\n");
-        return 2;
+        fprintf(stderr, "Cartridge metadata differs from the compiled program: running on the interpreter only\n");
+        cyc_run_native = cyc_run_native_ok = false;
     }
     if (cyc_native_program_name && cyc_prg_hash() != cyc_native_prg_hash) {
-        fprintf(stderr, "PRG ROM does not match the ROM '%s' was recompiled from (hash %08X, expected %08X)\n",
+        fprintf(stderr, "PRG ROM does not match the ROM '%s' was recompiled from (hash %08X, expected %08X): "
+                        "running on the interpreter only\n",
                 cyc_native_program_name, cyc_prg_hash(), cyc_native_prg_hash);
-        return 2;
+        cyc_run_native = cyc_run_native_ok = false;
     }
 #endif
     if (!save_paths_distinct(save_file,datach_save)) {

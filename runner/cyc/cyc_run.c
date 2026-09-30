@@ -6,6 +6,7 @@
 #include "hw_internal.h"
 
 bool      cyc_run_native = true;
+bool      cyc_run_native_ok = true;
 uint64_t  cyc_run_native_cycles;
 uint32_t *cyc_run_miss;
 uint32_t *cyc_run_ram_miss;

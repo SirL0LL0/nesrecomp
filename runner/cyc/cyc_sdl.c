@@ -103,7 +103,7 @@ int cyc_sdl_main(const char *title, int scale) {
             if (ev.type == SDL_KEYDOWN && !ev.key.repeat) {
                 switch (ev.key.keysym.scancode) {
                 case SDL_SCANCODE_ESCAPE: running = false; break;
-                case SDL_SCANCODE_F2: cyc_run_native = !cyc_run_native; break;
+                case SDL_SCANCODE_F2: cyc_run_native = !cyc_run_native && cyc_run_native_ok; break;
                 case SDL_SCANCODE_F12: {
                     char name[64];
                     snprintf(name, sizeof(name), "cyc_shot_%04d.png", shot++);

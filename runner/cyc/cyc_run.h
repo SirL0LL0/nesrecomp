@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 extern bool     cyc_run_native;         /* false: interpreter only (default true) */
+extern bool     cyc_run_native_ok;      /* false: the loaded ROM is not the one the native code came from */
 extern uint64_t cyc_run_native_cycles;  /* CPU cycles performed by recompiled code */
 /* Optional: ROM instruction starts that ran interpreted, counted per
  * (PRG bank, slot) because that pair, not the CPU address, is what the
