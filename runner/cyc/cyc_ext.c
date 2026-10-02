@@ -79,7 +79,11 @@ bool cyc_state_load(const char *path) {
     Blob b[16];
     size_t n = blobs(b, extra);
     uint32_t head[3];
-    bool ok = fread(head, sizeof head, 1, f) == 1 && head[0] == MAGIC && head[1] == cyc_prg_hash() && head[2] == n;
+    /* CYC_STATE_ANY_ROM=1 (diagnosi): accetta uno stato salvato con un'altra versione della stessa ROM, utile
+     * quando cambiano solo i dati (es. una traduzione ricostruita) e il codice e' lo stesso. */
+    bool any_rom = getenv("CYC_STATE_ANY_ROM") != NULL;
+    bool ok = fread(head, sizeof head, 1, f) == 1 && head[0] == MAGIC && (any_rom || head[1] == cyc_prg_hash()) &&
+              head[2] == n;
     /* Read everything first: a bad file must not leave a half-loaded machine. */
     void *tmp[16] = {0};
     for (size_t i = 0; ok && i < n; i++) {
