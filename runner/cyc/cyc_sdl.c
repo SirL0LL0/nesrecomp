@@ -257,6 +257,37 @@ static long          s_frames_done;
 static bool          s_running = true;
 static bool          s_have_menu;
 
+/* Renderer flags follow the VSync setting: SDL_RENDERER_PRESENTVSYNC blocks
+ * each present on the display's refresh, so guest frames pace to vsync
+ * instead of SDL_Delay jitter — at 60 Hz, 120 Hz or anything else, since the
+ * guest keeps its own 60.0988 Hz clock and the display just repeats frames
+ * as needed. Off (default) is exactly the old behavior. A driver that
+ * refuses the flag falls back to tearing rather than dying. */
+static Uint32 renderer_flags(void)
+{
+    return (Uint32)(SDL_RENDERER_ACCELERATED | (s_set.vsync ? SDL_RENDERER_PRESENTVSYNC : 0));
+}
+
+static bool create_renderer(void)
+{
+    s_ren = s_win ? SDL_CreateRenderer(s_win, -1, renderer_flags()) : NULL;
+    if (s_win && !s_ren && (renderer_flags() & SDL_RENDERER_PRESENTVSYNC)) {
+        fprintf(stderr, "SDL window: vsync refused (%s); presenting without it\n", SDL_GetError());
+        s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_ACCELERATED);
+    }
+    /* offscreen / headless video drivers have no accelerated renderer */
+    if (s_win && !s_ren) s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
+    return s_ren != NULL;
+}
+
+/* Whether the live renderer actually syncs (a driver may take the flag and
+ * ignore it; GetRendererInfo reports what it honored). */
+static bool renderer_synced(void)
+{
+    SDL_RendererInfo info;
+    return s_ren && SDL_GetRendererInfo(s_ren, &info) == 0 && (info.flags & SDL_RENDERER_PRESENTVSYNC) != 0;
+}
+
 static uint64_t now_ms(void) { return SDL_GetTicks64(); }
 static long     frames_done(void) { return s_frames_done; }
 static void     request_quit(void) { s_running = false; }
@@ -1237,14 +1268,15 @@ int cyc_sdl_main(const char *title_in, int scale)
     s_win = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w * s_set.window_scale,
                              logical_h() * s_set.window_scale,
                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (s_hidden ? SDL_WINDOW_HIDDEN : 0));
-    s_ren = s_win ? SDL_CreateRenderer(s_win, -1, SDL_RENDERER_ACCELERATED) : NULL;
-    /* offscreen / headless video drivers have no accelerated renderer */
-    if (s_win && !s_ren) s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
-    if (!s_ren || !ensure_texture(w, h)) {
+    s_ren = NULL;
+    if (!create_renderer() || !ensure_texture(w, h)) {
         fprintf(stderr, "SDL window: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
+    if (s_set.vsync)
+        fprintf(stderr, "vsync %s\n", renderer_synced() ? "on: presenting at display refresh"
+                                                        : "on: driver did not honor it; tearing as before");
     apply_settings();
     /* From here a width request waits for the frame boundary; Fit follows
      * the drawable from the first frame. */
