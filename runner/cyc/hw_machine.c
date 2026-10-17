@@ -9,6 +9,7 @@
 #include "hw_internal.h"
 
 #include "cyc_core.h"
+#include "cyc_mod.h"
 #include "cyc_ring.h"
 #include "cyc_trace.h"
 #include "hw.h"
@@ -203,9 +204,22 @@ uint8_t hw_read(uint16_t addr)
     return hw_bus_read(addr);
 }
 
+/* A cheat's read substitution (cyc_mod.h), applied last so it wins over the
+ * board: a cheat the mapper can undo is not a cheat. Empty for every game that
+ * has not asked for one, so this costs a load and a branch per ROM read. */
+static inline uint8_t hw_rom_read_override(uint16_t addr, uint8_t value)
+{
+    const CycModReadOverride *t = cyc_mod_rom_read_overrides;
+    if (!t) return value;
+    for (unsigned i = 0, n = cyc_mod_rom_read_override_count(); i < n; i++)
+        if (t[i].addr == addr) return t[i].value;
+    return value;
+}
+
 uint8_t hw_read_rom(uint16_t addr, uint8_t value)
 {
     hw_cart_cpu_read_snoop(addr,value);
+    value = hw_rom_read_override(addr, value);
     hw.data_driven = 1;
     hw.data_bus = hw.internal_bus = value;
     if (cyc_trace_enabled) cyc_trace_access(addr, value, false);
@@ -254,6 +268,7 @@ uint8_t hw_bus_read(uint16_t addr)
         hw.data_bus = hw_cart_prg_read(addr);
         hw.data_driven = !(hw_cart.prg_off[addr>>12&7]&MMC5_PRG_OPEN);
         hw_cart_cpu_read_snoop(addr,hw.data_bus);
+        hw.data_bus = hw_rom_read_override(addr,hw.data_bus);
     } else if (addr < 0x2000) {
         hw.data_bus = hw.ram[addr & 0x7FF];
         hw.data_driven = 1;
