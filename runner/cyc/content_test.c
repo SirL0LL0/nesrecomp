@@ -4,6 +4,7 @@
 #include "cpu6502.h"
 #include "cyc_mod.h"
 #include "cyc_state.h"
+#include "cyc_trace.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,20 @@ static void boot(bool chr_rom) {
     image[4] = 1; image[5] = chr_rom;
     CHECK(cyc_load_ines(image, 16 + 16384 + (chr_rom ? 8192 : 0)));
     cyc_power_on(0);
+}
+static void traced_power_on(void) {
+    bool enabled = cyc_trace_enabled;
+    cyc_trace_enabled = true;
+    boot(false);
+    write_reg(0x2006, 0x12);
+    uint64_t fresh_hash = cyc_trace_hash;
+    uint32_t fresh_cycle = cyc_trace_cycle;
+    write_reg(0x2006, 0x34);
+    write_reg(0x2007, 0xA7);
+    boot(false);
+    write_reg(0x2006, 0x12);
+    CHECK(cyc_trace_hash == fresh_hash && cyc_trace_cycle == fresh_cycle);
+    cyc_trace_enabled = enabled;
 }
 static void rom_read_overrides(void) {
     boot(false);
@@ -57,6 +72,7 @@ static void rom_read_overrides(void) {
     CHECK(cpu_read(0x8000, 0) == 0 && cpu_read_rom(0x8000, 0, 0) == 0);
 }
 int main(void) {
+    traced_power_on();
     rom_read_overrides();
     boot(false);
     CHECK(!hw_prg_modified);

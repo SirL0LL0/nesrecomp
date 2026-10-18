@@ -462,6 +462,11 @@ void cyc_power_on(uint8_t ppu_alignment)
     memset(&hw_zapper, 0, sizeof(hw_zapper));
     hw_zapper.x = hw_zapper.y = -1;
     hw.align = ppu_alignment & 3;
+    /* Traced sessions share this process when returning to the lobby. A new
+     * power-on must not inherit the previous match's diagnostic history:
+     * these fields are included in cycle snapshots and rollback digests. */
+    cyc_trace_hash = 0;
+    cyc_trace_cycle = 0;
     cyc_ring_reset();
     /* CPU RAM at power-on: runs of $F0 and $0F (the pattern AccuracyCoin's
      * power-on page shows on the reference console; not defined by the
