@@ -51,6 +51,7 @@
 #include "cyc_core.h"
 #include "cyc_disk_action.h"
 #include "cyc_fds_bios.h"
+#include "cyc_frame_pacing.h"
 #include "cyc_host.h"
 #include "cyc_host_extras.h"
 #include "cyc_hooks.h"
@@ -257,26 +258,44 @@ static long          s_frames_done;
 static bool          s_running = true;
 static bool          s_have_menu;
 
-/* Renderer flags follow the VSync setting: SDL_RENDERER_PRESENTVSYNC blocks
- * each present on the display's refresh, so guest frames pace to vsync
- * instead of SDL_Delay jitter — at 60 Hz, 120 Hz or anything else, since the
- * guest keeps its own 60.0988 Hz clock and the display just repeats frames
- * as needed. Off (default) is exactly the old behavior. A driver that
- * refuses the flag falls back to tearing rather than dying. */
-static Uint32 renderer_flags(void)
+/* VSync belongs to presentation. The guest retains its own deadline, and
+ * fast-forward / measurement must be able to turn blocking presents off.
+ * Older SDL builds and drivers without that control retain unsynced output. */
+static bool s_vsync_supported, s_vsync_active;
+
+static bool renderer_vsync(bool enabled)
 {
-    return (Uint32)(SDL_RENDERER_ACCELERATED | (s_set.vsync ? SDL_RENDERER_PRESENTVSYNC : 0));
+    if (enabled == s_vsync_active) return true;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    if (s_vsync_supported && SDL_RenderSetVSync(s_ren, enabled ? 1 : 0) == 0) {
+        s_vsync_active = enabled;
+        return true;
+    }
+#endif
+    return false;
 }
 
 static bool create_renderer(void)
 {
-    s_ren = s_win ? SDL_CreateRenderer(s_win, -1, renderer_flags()) : NULL;
-    if (s_win && !s_ren && (renderer_flags() & SDL_RENDERER_PRESENTVSYNC)) {
-        fprintf(stderr, "SDL window: vsync refused (%s); presenting without it\n", SDL_GetError());
-        s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_ACCELERATED);
-    }
+    s_vsync_supported = s_vsync_active = false;
+    s_ren = s_win ? SDL_CreateRenderer(s_win, -1, SDL_RENDERER_ACCELERATED) : NULL;
     /* offscreen / headless video drivers have no accelerated renderer */
     if (s_win && !s_ren) s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
+    if (!s_ren) return false;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    if (s_set.vsync && SDL_RenderSetVSync(s_ren, 1) == 0) {
+        /* Verify both directions before creating textures or the runtime UI.
+         * A backend that cannot disable blocking must not cap fast-forward. */
+        if (SDL_RenderSetVSync(s_ren, 0) == 0) {
+            s_vsync_supported = true;
+        } else {
+            SDL_DestroyRenderer(s_ren);
+            s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_ACCELERATED);
+            if (!s_ren) s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
+        }
+    }
+#endif
+    if (s_ren) renderer_vsync(s_set.vsync && !s_uncapped);
     return s_ren != NULL;
 }
 
@@ -648,7 +667,8 @@ static void tcp_state(int id, const char *line)
     snprintf(f, sizeof(f),
              "\"frame\":%ld,\"menu_open\":%s,\"fds\":%s,\"side\":%d,\"sides\":%u,\"motor\":%s,\"writing\":%s,"
              "\"toast\":{\"visible\":%s,\"title\":%s,\"body\":%s},\"hle\":%s,\"disk_save\":%s,\"disk_binding\":%s,"
-             "\"picture\":[%d,%d],\"dev_ui\":%s,\"recomp_ui\":%s,\"native\":%s",
+             "\"picture\":[%d,%d],\"dev_ui\":%s,\"recomp_ui\":%s,\"native\":%s,"
+             "\"vsync_requested\":%s,\"vsync_active\":%s",
              s_frames_done, menu_open() ? "true" : "false", s_fds ? "true" : "false", s_fds ? cyc_fds_side() : -1,
              s_fds ? cyc_fds_side_count() : 0, s_fds && cyc_fds_motor_on() ? "true" : "false",
              s_fds && cyc_fds_writing() ? "true" : "false", s_toast_up ? "true" : "false", t, b, h, save, hq, w, hh,
@@ -662,7 +682,8 @@ static void tcp_state(int id, const char *line)
 #else
              "false",
 #endif
-             cyc_run_native ? "true" : "false");
+             cyc_run_native ? "true" : "false", s_set.vsync ? "true" : "false",
+             renderer_synced() ? "true" : "false");
     /* the controllers the window reads, and the buttons it sees held */
     size_t at = strlen(f);
     at += (size_t)snprintf(f + at, sizeof(f) - at, ",\"pads\":[");
@@ -1275,8 +1296,8 @@ int cyc_sdl_main(const char *title_in, int scale)
         return 1;
     }
     if (s_set.vsync)
-        fprintf(stderr, "vsync %s\n", renderer_synced() ? "on: presenting at display refresh"
-                                                        : "on: driver did not honor it; tearing as before");
+        fprintf(stderr, "vsync %s\n", s_vsync_supported ? "available: disabled while fast-forwarding or uncapped"
+                                                      : "unavailable: presenting without synchronization");
     apply_settings();
     /* From here a width request waits for the frame boundary; Fit follows
      * the drawable from the first frame. */
@@ -1312,6 +1333,7 @@ int cyc_sdl_main(const char *title_in, int scale)
     char disk_hint[64];
     const double frame_seconds = cyc_host_frame_seconds();
     const Uint64 freq = SDL_GetPerformanceFrequency();
+    const Uint64 frame_ticks = (Uint64)(frame_seconds * (double)freq);
     Uint64 next = SDL_GetPerformanceCounter();
     Uint64 fps_mark = next, shown = 0;
     const Uint64 measurement_start = next;
@@ -1498,13 +1520,22 @@ int cyc_sdl_main(const char *title_in, int scale)
         }
         if(replay){next=SDL_GetPerformanceCounter();continue;}
 
-        /* A fast-loaded frame is shown only if 1/60 s passed since the last one. */
+        /* Keep guest deadlines independent of the display. A late picture is
+         * dropped while the next guest frame catches up; every guest frame's
+         * hooks, input and audio above still run. Fast paths never block on
+         * VSync. If a driver unexpectedly refuses to disable it, omit those
+         * presents rather than slowing guest execution. */
         Uint64 tnow = SDL_GetPerformanceCounter();
-        if (!loading || tnow - shown >= (Uint64)(frame_seconds * (double)freq)) {
+        bool unpaced = fast || s_uncapped;
+        renderer_vsync(s_set.vsync && !unpaced);
+        bool present = cyc_frame_present_due(tnow, next, frame_ticks, shown,
+                                             s_vsync_active, unpaced || open || inactive);
+        if (present && !(unpaced && s_vsync_active) &&
+            (!loading || tnow - shown >= frame_ticks)) {
             show(loading, toast_title, toast_body);
             if (s_present_out && s_present_every > 0 && loops % s_present_every == 0) present_shot(s_frames_done);
             SDL_RenderPresent(s_ren);
-            shown = tnow;
+            shown = SDL_GetPerformanceCounter();
             /* the one point a new width applies: after this present, before the next picture */
             cyc_video_apply_pending();
         }
@@ -1533,7 +1564,7 @@ int cyc_sdl_main(const char *title_in, int scale)
             next = tnow;
             continue;
         }
-        next += (Uint64)(frame_seconds * (double)freq);
+        next += frame_ticks;
         if (next > tnow) {
             Uint32 ms = (Uint32)((next - tnow) * 1000 / freq);
             if (ms > 1) SDL_Delay(ms - 1);
