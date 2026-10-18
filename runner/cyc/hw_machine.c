@@ -546,8 +546,8 @@ double cyc_frame_seconds(void) { return hw_pal() ? (341.0 * 312.0 * 5.0) / 26601
  *
  * MMC3 (4) counts rising edges of PPU A12 (mmc3_clock_irq), so it is affected
  * by what the PPU does on those lines and stays supported for its own sake.
- * MMC1 (1) triggers its IRQ from writes to $8000/$8001 bit 7 (mmc1_write), never
- * from the PPU, so the extra lines are inert for it.
+ * MMC1 (1) has no IRQ counter. Its serial register responds to CPU writes
+ * (bit 7 resets that register), so it needs no PPU-clocked IRQ adjustment.
  *
  * Only consulted when extra_scanlines is non-zero: at stock timing (0) this
  * changes nothing for any game. */
