@@ -76,6 +76,9 @@ if(MSVC)
 endif()
 add_test(NAME cyc_disk_action_test COMMAND cyc_disk_action_test)
 
+add_executable(cyc_frame_pacing_test frame_pacing_test.c)
+add_test(NAME cyc_frame_pacing_test COMMAND cyc_frame_pacing_test)
+
 # The window's input actions and their persistence (cyc_input.h, cyc_settings.h).
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
 add_test(NAME cyc_bad_game_config COMMAND "${Python3_EXECUTABLE}"
