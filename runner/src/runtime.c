@@ -1832,8 +1832,6 @@ void ppu_write_reg(uint16_t reg, uint8_t val) {
             break;
         case 0x2001:
             g_ppumask = g_ppumask_translate ? nes_ppumask_to_runner(val) : val;
-            if (g_ppumask_translate)
-                g_ppumask |= 0x1E;
             if (getenv("NESRECOMP_TRACE_PPUMASK"))
                 fprintf(stderr, "[MASK] f=%llu cyc=%llu val=$%02X depth=%d\n",
                         (unsigned long long)g_frame_count,
@@ -2649,6 +2647,8 @@ void nes_resolve_nested_nmi_spin_flags(void) {
 uint16_t g_code_window_base = 0xE000;
 static int32_t s_tail_pending = -1;
 static int     s_tail_caller  = -1;
+static int s_tail_active_n = 0;
+static int s_tail_pending_slot = -1;
 
 void runtime_prepare_guest_resume(uint16_t pc, int tick_charged) {
     extern uint16_t g_rts_target;
@@ -2659,6 +2659,11 @@ void runtime_prepare_guest_resume(uint16_t pc, int tick_charged) {
     g_nes_dispatch_depth = 0;
     s_tail_pending = -1;
     s_tail_caller = -1;
+    /* The old native tail ancestors were discarded with the host C stack.
+     * Keeping them would absorb a later transfer to the same address/guest
+     * stack as a cycle lap whose native ancestor no longer exists. */
+    s_tail_active_n = 0;
+    s_tail_pending_slot = -1;
     g_rts_target = 0;
     g_rti_target = 0;
     s_in_irq = 0;
@@ -3041,8 +3046,6 @@ static struct {
     uint8_t s;
     uint64_t interrupt_epoch;
 } s_tail_active[TAIL_ACTIVE_MAX];
-static int s_tail_active_n = 0;
-static int s_tail_pending_slot = -1;
 
 static int tail_crosses_interrupt(int slot) {
     return s_tail_active[slot].interrupt_epoch < runtime_get_interrupt_epoch() &&
