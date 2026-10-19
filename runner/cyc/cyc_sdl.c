@@ -53,6 +53,7 @@
 #include "cyc_fds_bios.h"
 #include "cyc_frame_pacing.h"
 #include "cyc_host.h"
+#include "cyc_diagnostics.h"
 #include "cyc_host_extras.h"
 #include "cyc_hooks.h"
 #include "cyc_input.h"
@@ -204,7 +205,7 @@ int cyc_sdl_prelaunch(const char **rom_path, const char *cli_bios, NesFdsHleAsk 
     if (!cyc_session_mods_init(mods, err, sizeof(err))) {
         fprintf(stderr, "%s\n", err);
         cyc_sdl_error_box("Mods", err);
-        return 1;
+        return 2;
     }
 #ifdef CYC_WITH_RECOMP_UI
     const char *no = getenv("NESRECOMP_NO_LAUNCHER");
@@ -216,18 +217,24 @@ int cyc_sdl_prelaunch(const char **rom_path, const char *cli_bios, NesFdsHleAsk 
          * screen's selection (the provider's commit) before it returns. */
         const CycFdsBiosLookup bios = { cli_bios, NULL, NULL, cyc_native_fds_bios_crc32 };
         int r = cyc_ui_launcher(&s_set, s_set_path, s_extras, rom_path, s_fds, &bios, cyc_session_mods_provider());
+        cyc_diagnostics_note("launcher handoff result=%d", r);
         save_settings();
-        if (r == 1) return 1;
+        if (r != 0) return r;
         s_fds = looks_fds(*rom_path);
     }
 #else
     (void)cli_bios;
 #endif
     if (!cyc_session_mods_start(*rom_path, err, sizeof(err))) {
-        fprintf(stderr, "%s\n", err);
+        cyc_diagnostics_error("%s\n", err);
         cyc_sdl_error_box("Mods", err);
-        return 1;
+        return 2;
     }
+    SDL_version linked; SDL_GetVersion(&linked);
+    cyc_diagnostics_note("settings scale=%d fullscreen=%d integer=%d linear=%d audio=%d volume=%d skip_launcher=%d view=%d SDL=%u.%u.%u platform=%s",
+        s_set.window_scale, s_set.fullscreen, s_set.integer_scale, s_set.linear_filter,
+        s_set.audio_enabled, s_set.volume, s_set.skip_launcher, s_set.view_mode,
+        linked.major, linked.minor, linked.patch, SDL_GetPlatform());
     if (s_extras && s_extras->set_view_mode && s_set.view_mode) s_extras->set_view_mode(s_extras->ctx, s_set.view_mode);
     *saved_hle = s_set.fds_hle;
     *saved_bios = s_set.fds_bios[0] ? s_set.fds_bios : NULL;
@@ -239,6 +246,7 @@ int cyc_sdl_prelaunch(const char **rom_path, const char *cli_bios, NesFdsHleAsk 
 
 bool cyc_sdl_error_box(const char *title, const char *text)
 {
+    cyc_diagnostics_note("error title=%s text=%s", title, text);
     /* Never on a hidden or offscreen window (the native box would still reach
      * the desktop). */
     const char *drv = getenv("SDL_VIDEODRIVER");
@@ -1272,8 +1280,11 @@ int cyc_sdl_main(const char *title_in, int scale)
     /* A hidden window never has the keyboard focus, and SDL drops controller
      * input for an unfocused application unless told otherwise. */
     if (s_hidden) SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    cyc_diagnostics_note("initializing SDL video/controllers/audio");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_AUDIO) != 0) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        char message[700]; snprintf(message, sizeof(message), "SDL initialization failed: %s", SDL_GetError());
+        cyc_diagnostics_error("%s\n", message);
+        cyc_sdl_error_box("Cannot start game", message);
         return 1;
     }
     if (!s_set_path[0]) cyc_settings_default(&s_set);   /* prelaunch did not run */
@@ -1291,7 +1302,9 @@ int cyc_sdl_main(const char *title_in, int scale)
                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | (s_hidden ? SDL_WINDOW_HIDDEN : 0));
     s_ren = NULL;
     if (!create_renderer() || !ensure_texture(w, h)) {
-        fprintf(stderr, "SDL window: %s\n", SDL_GetError());
+        char message[700]; snprintf(message, sizeof(message), "Could not create the game window or renderer: %s", SDL_GetError());
+        cyc_diagnostics_error("%s\n", message);
+        cyc_sdl_error_box("Cannot start game", message);
         SDL_Quit();
         return 1;
     }
@@ -1299,6 +1312,9 @@ int cyc_sdl_main(const char *title_in, int scale)
         fprintf(stderr, "vsync %s\n", s_vsync_supported ? "available: disabled while fast-forwarding or uncapped"
                                                       : "unavailable: presenting without synchronization");
     apply_settings();
+    SDL_RendererInfo renderer = {0}; SDL_GetRendererInfo(s_ren, &renderer);
+    cyc_diagnostics_note("game window ready driver=%s renderer=%s flags=%u texture=%dx%d displays=%d",
+        SDL_GetCurrentVideoDriver(), renderer.name ? renderer.name : "unknown", renderer.flags, w, h, SDL_GetNumVideoDisplays());
     /* From here a width request waits for the frame boundary; Fit follows
      * the drawable from the first frame. */
     cyc_video_window_ready();
@@ -1321,7 +1337,9 @@ int cyc_sdl_main(const char *title_in, int scale)
     want.samples = 1024;
     SDL_AudioDeviceID dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (dev && cyc_audio_enable(have.freq)) SDL_PauseAudioDevice(dev, 0);
-    else if (!dev) fprintf(stderr, "SDL audio: %s (continuing without sound)\n", SDL_GetError());
+    else if (!dev) cyc_diagnostics_error("SDL audio: %s (continuing without sound)\n", SDL_GetError());
+    cyc_diagnostics_note("audio device=%u driver=%s rate=%d game_controllers=%d", dev,
+        SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "none", dev ? have.freq : 0, SDL_NumJoysticks());
 #ifdef NESRECOMP_NET
     if(cyc_net_boot()!=0)s_running=false;
 #endif
@@ -1583,6 +1601,7 @@ int cyc_sdl_main(const char *title_in, int scale)
                dev != 0, s_set.audio_enabled != 0,
                (unsigned long long)audio_samples_produced, (unsigned long long)audio_samples_queued);
     }
+    cyc_diagnostics_note("game loop ended; releasing SDL resources");
     save_settings();
     cyc_tcp_stop();
 #ifdef CYC_WITH_RECOMP_UI

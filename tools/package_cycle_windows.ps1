@@ -29,6 +29,7 @@ function Cache-Path([string]$Name, [string]$Fallback) {
 }
 $EngineRoot = Cache-Path 'NESRECOMP_ROOT' (Join-Path $ProjectRoot 'nesrecomp')
 $RecompUi = Cache-Path 'NESRECOMP_RECOMP_UI' (Join-Path $ProjectRoot 'recomp-ui')
+$startupDiagnostics = $cache -match '(?m)^NESRECOMP_STARTUP_DIAGNOSTICS:BOOL=ON\r?$'
 $bin = if (Test-Path -LiteralPath (Join-Path $build "Release/$Target.exe")) { Join-Path $build 'Release' } else { $build }
 foreach ($dependency in "$Target.exe",'SDL2.dll','assets') {
     if (-not (Test-Path -LiteralPath (Join-Path $bin $dependency))) { throw "Missing release dependency: $dependency" }
@@ -38,11 +39,18 @@ New-Item -ItemType Directory -Path $out -Force | Out-Null
 $stage = Join-Path $out ('stage-cycle-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage | Out-Null
 try {
-    foreach ($file in "$Target.exe",'SDL2.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll') {
+    foreach ($file in "$Target.exe",'SDL2.dll','msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll',
+                     'msvcp140_1.dll','msvcp140_2.dll','concrt140.dll','vccorlib140.dll',
+                     'msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll') {
         $source = Join-Path $bin $file
         if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $stage }
     }
     Copy-Item -LiteralPath (Join-Path $bin 'assets') -Destination (Join-Path $stage 'assets') -Recurse
+    if ($startupDiagnostics) {
+        Copy-Item -LiteralPath (Join-Path $ProjectRoot 'DIAGNOSTICS.md') -Destination $stage
+        Copy-Item -LiteralPath (Join-Path $ProjectRoot 'tools/Collect-Diagnostics.cmd') -Destination $stage
+        Copy-Item -LiteralPath (Join-Path $EngineRoot 'tools/Collect-Diagnostics.ps1') -Destination $stage
+    }
     $preloaded = Join-Path $ProjectRoot 'mods/preloaded/packages'
     if (Test-Path -LiteralPath $preloaded) {
         New-Item -ItemType Directory -Path (Join-Path $stage 'mods') | Out-Null
@@ -72,9 +80,12 @@ Gamepads and remapping are supported; use Controls (config.ini).
 Legacy binary save states require the retained legacy backend.
 $GameNotes
 "@
+    if ($startupDiagnostics) {
+        $readme += "`r`nStartup logs and crash dumps are automatic. After a failure, send the diagnostics folder beside the executable. See DIAGNOSTICS.md; Collect-Diagnostics.cmd also captures Windows loader failures.`r`n"
+    }
     [IO.File]::WriteAllText((Join-Path $stage 'README.txt'),$readme,[Text.Encoding]::UTF8)
     $forbidden = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object {
-        $_.Extension -in '.nes','.fds','.sav','.srm','.state','.cycstate','.log' -or
+        $_.Extension -in '.nes','.fds','.sav','.srm','.state','.cycstate','.log','.dmp' -or
         $_.Name -in 'rom.cfg','config.ini','keybinds.ini','debug.ini','state.toml'
     })
     if ($forbidden.Count) { throw 'Player or ROM data found in release staging.' }

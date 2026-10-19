@@ -1,5 +1,8 @@
 # Opt-in cycle backend for existing game projects. See PROJECTS.md.
 include_guard(GLOBAL)
+option(NESRECOMP_STARTUP_DIAGNOSTICS "Record startup logs and Windows crash dumps before opening the launcher" OFF)
+set(NESRECOMP_GAME_VERSION "development" CACHE STRING "Game release version in diagnostic logs")
+set(NESRECOMP_BUILD_REVISION "unknown" CACHE STRING "Source revision in diagnostic logs")
 include("${CMAKE_CURRENT_LIST_DIR}/../recomp_net.cmake")
 
 # recomp-ui (launcher + in-game menu, runner/cyc/cyc_ui.h) for windowed
@@ -128,11 +131,33 @@ function(nesrecomp_add_cycle_game target)
         ${CYC_PROJECT_DEPENDS} "${root}/tools/cyc/prepare_project.py")
     include("${cyc_dir}/cyc.cmake")
     add_executable(${target} ${NESRECOMP_CYC_SOURCES} ${CYC_PROJECT_SOURCES})
+    if(MSVC)
+        # A clean Windows machine need not have the VC redistributable.
+        # Stage the compiler's redistributable DLLs, never System32 copies.
+        set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
+        include(InstallRequiredSystemLibraries)
+        foreach(runtime IN LISTS CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${runtime}" "$<TARGET_FILE_DIR:${target}>"
+                VERBATIM)
+        endforeach()
+    endif()
     set_property(TARGET ${target} PROPERTY NESRECOMP_CYCLE_BACKEND TRUE)
     target_compile_features(${target} PRIVATE c_std_11)
     target_include_directories(${target} PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
     target_link_libraries(${target} PRIVATE ${NESRECOMP_CYC_LIBRARIES})
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(${target} PRIVATE "CYC_BUILD_VERSION=\"${NESRECOMP_GAME_VERSION}\"")
+    target_compile_definitions(${target} PRIVATE "CYC_BUILD_REVISION=\"${NESRECOMP_BUILD_REVISION}\"")
+    if(NESRECOMP_STARTUP_DIAGNOSTICS)
+        target_compile_definitions(${target} PRIVATE CYC_STARTUP_DIAGNOSTICS=1)
+        if(MSVC)
+            # Preserve optimized release code and matching symbols for reports.
+            target_compile_options(${target} PRIVATE /Zi)
+            target_link_options(${target} PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+        endif()
+    endif()
     if(MSVC)
         # Sources are UTF-8; MSVC on a CJK code page (932/936/949) misreads them otherwise.
         target_compile_options(${target} PRIVATE /utf-8)
