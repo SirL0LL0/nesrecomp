@@ -32,15 +32,12 @@ bool rom_parse(const char *path, NESRom *out) {
         return false;
     }
     out->nes2 = out->cart.nes2 != 0;
-    out->prg_banks = (out->cart.prg_size + 16383) / 16384;
-    out->chr_banks = (out->cart.chr_size + 8191) / 8192;
     out->mapper = out->cart.mapper;
 
     /* Reject truncated CHR/trainer data too, before generating any code. */
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return false; }
     long file_size = ftell(f);
-    uint64_t required = out->cart.data_offset + (uint64_t)out->cart.prg_size + out->cart.chr_size;
-    if (file_size < 0 || (uint64_t)file_size < required) {
+    if (file_size < 16 || (uint64_t)file_size > 0x8000210u) {
         fclose(f);
         return false;
     }
@@ -54,6 +51,8 @@ bool rom_parse(const char *path, NESRom *out) {
         return false;
     }
     free(image);
+    out->prg_banks = (out->cart.prg_size + 16383) / 16384;
+    out->chr_banks = (out->cart.chr_size + 8191) / 8192;
     out->mapper = out->cart.mapper;
     if (fseek(f, (long)out->cart.data_offset, SEEK_SET) != 0) {
         fclose(f);

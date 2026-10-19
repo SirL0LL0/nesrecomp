@@ -1375,7 +1375,13 @@ session_restart:
         return 2;
     }
 #ifndef CYC_ORACLE
-    if (cyc_native_program_name && !nes_cart_identity_compatible(&cart_info, cyc_native_cart_hash)) {
+    int identity_region = region;
+#ifdef CYC_GAME_REGION
+    if (identity_region < 0) identity_region = CYC_GAME_REGION;
+#endif
+    if (identity_region < 0) identity_region = cyc_cart_region();
+    if (cyc_native_program_name && !nes_cart_identity_compatible_region(&cart_info, cyc_native_cart_hash,
+                                                                     identity_region == CYC_REGION_PAL)) {
         cyc_diagnostics_error("Cartridge metadata differs from the compiled program; regenerate native code\n");
 #if defined(CYC_WITH_SDL)
         if (!headless) cyc_sdl_error_box("Cannot start game", "The ROM cartridge metadata differs from this build. Select the matching original ROM in the launcher.");
