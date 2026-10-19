@@ -39,6 +39,13 @@ Requires CMake 3.20+, a C11 compiler and Python 3.11+. The host recompiler is
 built automatically during configure. Cross builds must supply an already
 built host compiler with `NESRECOMP_HOST_COMPILER` or `RECOMPILER` below.
 
+Windowed Linux and macOS builds use the platform's SDL2 development package.
+The bundled Visual C++ SDL2 SDK is searched only for Windows targets. Native
+configurations that previously cached that bundled SDK automatically discard
+that selection on the next configure; explicit platform SDK paths remain
+supported through `SDL2_DIR`. Without SDL2, the ordinary cycle target retains
+its headless fallback.
+
 Windows game repositories can call `tools/build_cycle_windows.ps1` with
 `-ProjectRoot`, `-Rom` and optional `-BuildDir`, `-EngineRoot`, `-RecompUi` and
 `-CMakeArgs`. It uses the installed CMake executable and hidden native
