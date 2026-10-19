@@ -40,6 +40,13 @@ static void native_identity_checks(void)
     pal.timing = 1;
     CHECK(!nes_cart_identity_compatible(&old, nes_cart_identity(&pal)));
     CHECK(!nes_cart_identity_compatible(&world, nes_cart_identity(&pal)));
+    CHECK(nes_cart_identity_compatible_region(&old, nes_cart_identity(&pal), true));
+    CHECK(nes_cart_identity_compatible_region(&pal, hash, true));
+    CHECK(nes_cart_identity_compatible_region(&world, nes_cart_identity(&pal), true));
+    CHECK(!nes_cart_identity_compatible_region(&ntsc, nes_cart_identity(&pal), true));
+    CHECK(!nes_cart_identity_compatible_region(&pal, nes_cart_identity(&ntsc), true));
+    pal.timing = 3;
+    CHECK(!nes_cart_identity_compatible_region(&pal, hash, true));
 
     /* MMC3 explicit NES 2.0 RAM agrees only when its resolved geometry is the
      * same as the legacy default. */
@@ -65,6 +72,40 @@ static void native_identity_checks(void)
 int main(void)
 {
     native_identity_checks();
+    {
+        /* Database facts resolve omitted iNES UxROM/MMC3 board details;
+         * explicit NES 2.0 metadata and unknown payloads remain strict. */
+        const uint8_t mm1_crc[4] = {0x90,0x1F,0xA3,0x9F};
+        const uint8_t mm3_crc[4] = {0x3E,0xF3,0x50,0xBB};
+        uint8_t h[16] = {'N','E','S',26,8,0,0x21};
+        NesCartInfo c;
+        CHECK(nes_crc32(0,mm1_crc,4)==0x6EE4BB0Au);
+        CHECK(nes_cart_header(h,16,&c));
+        nes_cart_known_dump(&c,mm1_crc,4);
+        CHECK(c.mapper==2 && c.submapper==2 && !c.prg_ram && c.vertical);
+        h[6]=0x41; h[5]=16;
+        CHECK(nes_cart_header(h,16,&c)); CHECK(c.prg_ram==8192);
+        nes_cart_known_dump(&c,mm3_crc,4); CHECK(!c.prg_ram);
+        h[7]=8; h[10]=7;
+        CHECK(nes_cart_header(h,16,&c)); nes_cart_known_dump(&c,mm3_crc,4);
+        CHECK(c.prg_ram==8192);
+        /* Complete Yoshi USA payload CRC in a synthetic zero-filled image;
+         * its old header overstates the CHR chip size. Never accept an
+         * actually truncated or modified payload under this recovery rule. */
+        size_t size=16+163840;
+        uint8_t *image=(uint8_t *)calloc(size,1); CHECK(image);
+        const uint8_t header[16]={'N','E','S',26,8,8,0x10};
+        const uint8_t tail[4]={0xEA,0xCB,0x2A,0x5E};
+        memcpy(image,header,16); memcpy(image+size-4,tail,4);
+        CHECK(nes_cart_image(image,size,&c));
+        CHECK(c.prg_size==131072 && c.chr_size==32768 && !c.prg_ram);
+        CHECK(image[5]==8);
+        CHECK(!nes_cart_image(image,size-1,&c));
+        image[size-1]^=1; CHECK(!nes_cart_image(image,size,&c)); image[size-1]^=1;
+        image[7]=8; CHECK(!nes_cart_image(image,size,&c)); image[7]=0;
+        image[6]=0; CHECK(!nes_cart_image(image,size,&c));
+        free(image);
+    }
     uint8_t h[16] = {'N','E','S',26,2,1,0,8};
     NesCartInfo c;
     CHECK(nes_cart_header(h,16,&c));

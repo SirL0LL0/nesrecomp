@@ -124,6 +124,7 @@ static inline uint32_t nes_crc32(uint32_t crc, const uint8_t *data, size_t len)
 typedef struct {
     uint32_t crc; uint16_t mapper, dumped_as; uint8_t submapper, mirror, sets_ram;
     uint16_t prg_ram, prg_nvram; uint8_t four_screen;
+    uint32_t prg_size, chr_size;
 } NesKnownDump;
 static const NesKnownDump nes_known_dumps[] = {
 #include "nes_known_dumps.inc"
@@ -161,14 +162,32 @@ static inline bool nes_cart_image(const uint8_t *image, size_t size, NesCartInfo
 {
     if (!nes_cart_header(image, size, c) || c->data_offset > size) return false;
     size -= c->data_offset;
+    /* A few legacy files declare the wrong chip sizes despite containing
+     * the complete original payload. Recover only an exact database payload
+     * with the documented mapper and total length. Explicit NES 2.0 metadata,
+     * trainers, unknown payloads and truly truncated images remain strict. */
+    if (!c->nes2 && !c->trainer &&
+        ((uint64_t)c->prg_size + c->chr_size != size)) {
+        uint32_t crc = nes_crc32(0, image + c->data_offset, size);
+        for (size_t i = 0; i < sizeof(nes_known_dumps)/sizeof(nes_known_dumps[0]); ++i) {
+            const NesKnownDump *k = &nes_known_dumps[i];
+            if (k->crc == crc && k->prg_size == c->prg_size && k->chr_size && c->chr_size &&
+                (c->mapper == k->mapper || c->mapper == k->dumped_as) &&
+                (uint64_t)k->prg_size + k->chr_size == size) {
+                c->prg_size = k->prg_size; c->chr_size = k->chr_size;
+                break;
+            }
+        }
+    }
     if (c->prg_size > size) return false;
     if (c->chr_size > size - c->prg_size) return false;
-    /* Explicit old-header MMC1 RAM sizes also describe patched derivatives
+    /* Explicit old-header RAM sizes also describe patched derivatives
      * whose payload no longer matches the original cartridge database. */
-    bool explicit_mmc1_ram = !c->nes2 && image[8] && (c->mapper == 1 || c->mapper == 155);
+    bool explicit_board_ram = !c->nes2 && image[8] &&
+        (c->mapper == 1 || c->mapper == 155 || c->mapper == 2 || c->mapper == 4);
     uint32_t prg_ram = c->prg_ram, prg_nvram = c->prg_nvram;
     nes_cart_known_dump(c, image + c->data_offset, (size_t)c->prg_size + c->chr_size);
-    if (explicit_mmc1_ram) {
+    if (explicit_board_ram) {
         c->prg_ram = prg_ram; c->prg_nvram = prg_nvram; c->battery = prg_nvram != 0;
     }
     return true;
@@ -292,20 +311,29 @@ static inline uint32_t nes_cart_identity(const NesCartInfo *c)
  * format flag changes its mirroring-register decode, so it is not an alias.
  * Call only after the ordinary image/board validation. No metadata is changed
  * and all ROM/RAM geometry, wiring, trainer and console fields remain checked. */
-static inline bool nes_cart_identity_compatible(const NesCartInfo *c, uint32_t expected)
+static inline bool nes_cart_identity_compatible_region(const NesCartInfo *c, uint32_t expected,
+                                                       bool pal_profile)
 {
-    if (nes_cart_identity(c) == expected) return true;
+    /* An explicit single-region image must agree with the selected profile.
+     * Legacy iNES timing is unspecified; multi-region allows either profile.
+     * Do not infer PAL from a legacy file's unstandardized padding bytes. */
+    if (pal_profile && c->nes2 && c->timing != 1 && c->timing != 2) return false;
+    if (!pal_profile && c->timing != 0 && c->timing != 2) return false;
     NesCartInfo alias = *c;
     for (unsigned format = 0; format <= 1; ++format) {
         if (c->mapper == 71 && format != c->nes2) continue;
         alias.nes2 = (uint8_t)format;
-        alias.timing = c->timing;
-        if (nes_cart_identity(&alias) == expected) return true;
-        if (c->timing == 0 || c->timing == 2) {
-            alias.timing = c->timing ^ 2;
+        for (unsigned timing = 0; timing <= 2; ++timing) {
+            if (pal_profile ? (format && timing == 0) : timing == 1) continue;
+            if (!format && timing != 0) continue;
+            alias.timing = (uint8_t)timing;
             if (nes_cart_identity(&alias) == expected) return true;
         }
     }
     return false;
+}
+static inline bool nes_cart_identity_compatible(const NesCartInfo *c, uint32_t expected)
+{
+    return nes_cart_identity_compatible_region(c, expected, false);
 }
 #endif
