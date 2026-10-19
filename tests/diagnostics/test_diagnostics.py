@@ -19,9 +19,9 @@ def main():
         startup = subprocess.STARTUPINFO()
         startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW; startup.wShowWindow = 0
     results = []
-    cases = ['off', 'normal', 'commit-fail', 'cycle', 'gui-streams', 'io-failure']
+    cases = ['off', 'normal', 'commit-fail', 'cycle', 'gui-streams', 'io-failure', 'startup']
     if os.name == 'nt':
-        cases += ['fault', 'abort', 'stack']
+        cases += ['fault', 'abort', 'stack', 'startup-fault']
     for name in cases:
         folder = root / name
         folder.mkdir(exist_ok=True)
@@ -35,8 +35,8 @@ def main():
                            capture_output=True, startupinfo=startup,
                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=30)
         logs, dumps = list(folder.glob('*.log')), list(folder.glob('*.dmp'))
-        if name in ['fault', 'abort', 'stack']:
-            expected = {'fault': 0xC0000005, 'abort': 0xE0000001, 'stack': 0xC00000FD}[name]
+        if name in ['fault', 'abort', 'stack', 'startup-fault']:
+            expected = {'fault': 0xC0000005, 'abort': 0xE0000001, 'stack': 0xC00000FD, 'startup-fault': 0xC0000005}[name]
             assert p.returncode & 0xffffffff == expected, (name, p.returncode, p.stderr)
             assert len(logs) == len(dumps) == 1, (name, logs, dumps)
             data = dumps[0].read_bytes()
@@ -50,6 +50,7 @@ def main():
             assert context_size > 0 and context_rva + context_size <= len(data)
             text = logs[0].read_text(errors='replace')
             assert 'CRASH exception=' in text and 'minidump=written' in text, (name, text)
+            if name == 'startup-fault': assert 'before launcher initialization' in text
         else:
             assert p.returncode == 0, (name, p.stderr)
             assert not dumps
@@ -59,6 +60,12 @@ def main():
             else:
                 assert len(logs) == (2 if name == 'cycle' else 1)
                 text = ''.join(log.read_text(errors='replace') for log in logs)
+                if name == 'startup':
+                    assert 'before launcher initialization' in text and 'exit code=0' in text
+                    assert 'Windows version=' in text if os.name == 'nt' else 'POSIX pid=' in text
+                    results.append({'case': name, 'returncode': p.returncode, 'logs': len(logs), 'dumps': len(dumps)})
+                    print(name, 'passed', flush=True)
+                    continue
                 assert 'PLAY: committing' in text and 'known startup error' in text
                 assert 'heartbeat frame=300' in text and 'exit code=0' in text
                 if name == 'commit-fail': assert 'injected commit failure' in text

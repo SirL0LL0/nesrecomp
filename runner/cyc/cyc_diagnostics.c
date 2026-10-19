@@ -51,6 +51,7 @@ static bool s_exit_registered, s_exiting, s_err_redirected;
 static uint64_t s_frame, s_cycles;
 static unsigned s_pc;
 static unsigned s_session;
+static bool s_startup;
 static void (*s_old_abort)(int);
 
 void cyc_diagnostics_note(const char *format, ...)
@@ -59,6 +60,15 @@ void cyc_diagnostics_note(const char *format, ...)
     va_list args; va_start(args, format);
     fputs("[diagnostics] ", s_log); vfprintf(s_log, format, args); fputc('\n', s_log);
     va_end(args); fflush(s_log);
+}
+
+void cyc_diagnostics_startup(void)
+{
+    /* Persist independently of the optional diagnostics mod. In particular,
+     * catalog initialization must not disable capture before the launcher. */
+    s_startup = true;
+    cyc_diagnostics_enable();
+    cyc_diagnostics_note("startup: entered main; initializing host");
 }
 
 void cyc_diagnostics_error(const char *format, ...)
@@ -272,6 +282,16 @@ bool cyc_diagnostics_enable(void)
     cyc_diagnostics_note("Windows pid=%lu minidump_handler=%s dbghelp=%s processors=%lu",
         (unsigned long)GetCurrentProcessId(), s_worker ? "ready" : "unavailable",
         s_dump_writer ? "ready" : "unavailable", (unsigned long)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
+    char cpu[512] = {0};
+    if (GetEnvironmentVariableA("PROCESSOR_IDENTIFIER", cpu, sizeof(cpu)) < sizeof(cpu) && cpu[0])
+        cyc_diagnostics_note("CPU=%s SSE2=%d", cpu, IsProcessorFeaturePresent(PF_XMMI64_INSTRUCTIONS_AVAILABLE));
+    wchar_t executable[4096];
+    if (GetModuleFileNameW(NULL, executable, 4096)) {
+        wchar_t *name = wcsrchr(executable, L'\\');
+        char utf8[512];
+        if (WideCharToMultiByte(CP_UTF8, 0, name ? name + 1 : executable, -1, utf8, sizeof(utf8), NULL, NULL))
+            cyc_diagnostics_note("executable=%s module_base=%p", utf8, (void *)GetModuleHandleW(NULL));
+    }
     typedef LONG (WINAPI *VersionReader)(OSVERSIONINFOW *);
     VersionReader version_reader = (VersionReader)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
     OSVERSIONINFOW version = {0}; version.dwOSVersionInfoSize = sizeof(version);
@@ -320,6 +340,7 @@ void cyc_diagnostics_disable(void)
 
 void cyc_diagnostics_sync(void)
 {
+    if (s_startup) { cyc_diagnostics_enable(); return; }
 #if NESRECOMP_ENABLE_MODS
     if (nes_mod_feature_selected("nesrecomp.developer.diagnostics", "diagnostics")) cyc_diagnostics_enable();
     else cyc_diagnostics_disable();

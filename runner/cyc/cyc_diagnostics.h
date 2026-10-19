@@ -1,4 +1,4 @@
-/* Opt-in host diagnostics. No files, handlers or threads until enabled. */
+/* Host diagnostics. Games may request automatic logging before the launcher. */
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 void cyc_diagnostics_sync(void);
+void cyc_diagnostics_startup(void);
 const void *cyc_diagnostics_provider(const void *provider);
 bool cyc_diagnostics_enable(void);
 void cyc_diagnostics_disable(void);

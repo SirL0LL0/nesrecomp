@@ -1405,7 +1405,19 @@ describes trace equality, while the printed test scores describe accuracy.
   worth ~5% by comparison. Any work there has to keep AccuracyCoin at 144/144
   and both ROMs matching the oracle at all four alignments.
 
-## Opt-in startup and crash diagnostics
+## Startup and crash diagnostics
+
+Games can default `NESRECOMP_STARTUP_DIAGNOSTICS` to `ON` before including
+`project.cmake`. This starts diagnostics at the first statement of `main`,
+before settings, the mod catalog or the launcher is initialized. Mod selections
+cannot turn this startup capture off. Set `NESRECOMP_GAME_VERSION` and
+`NESRECOMP_BUILD_REVISION` for identifiable reports. MSVC keeps optimized release
+code and generates a matching PDB; retain that file with the exact executable.
+The shared option defaults off for other games.
+
+`tools/Collect-Diagnostics.ps1 -Target Game.exe`, staged beside that executable,
+also captures the process exit code, stdout/stderr, Windows and GPU driver
+information if the Windows loader fails before `main`. It never uploads files.
 
 A game may bundle a default-off `nesrecomp.developer.diagnostics` package with
 feature `diagnostics` and trusted plugin `nesrecomp.diagnostics`, targeting its
@@ -1417,7 +1429,8 @@ Disabling it closes the log and restores the previous host handlers.
 Timestamped logs live in `diagnostics` beside the executable. On Windows,
 read-only installations fall back to `%LOCALAPPDATA%\NESRecomp\diagnostics`.
 `NESRECOMP_DIAGNOSTICS_DIR` can select an existing writable directory for tests.
-No files or crash handlers are created while the feature is off. Inherited
+With automatic startup capture off, no files or crash handlers are created while
+the mod feature is off. Inherited
 stdout/stderr file and pipe redirection is preserved. Headless catalog loading
 still requires `--mods-root`.
 

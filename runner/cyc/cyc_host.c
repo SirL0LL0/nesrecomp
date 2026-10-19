@@ -1856,6 +1856,10 @@ session_restart:
 #ifndef CYC_ORACLE
 int main(int argc, char **argv)
 {
+#ifdef CYC_STARTUP_DIAGNOSTICS
+    /* Capture even failures in argument parsing, settings or launcher setup. */
+    cyc_diagnostics_startup();
+#endif
     int result = host_main(argc, argv);
     cyc_diagnostics_exit(result);
     return result;

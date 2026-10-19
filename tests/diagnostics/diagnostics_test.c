@@ -38,6 +38,16 @@ static unsigned exhaust_stack(unsigned depth) {
 }
 int main(int argc, char **argv) {
     assert(argc == 2);
+    if (!strcmp(argv[1], "startup") || !strcmp(argv[1], "startup-fault")) {
+        cyc_diagnostics_startup();
+        assert(cyc_diagnostics_active());
+        /* No mod catalog or feature selection exists yet. */
+        cyc_diagnostics_sync();
+        assert(cyc_diagnostics_active());
+        cyc_diagnostics_note("before launcher initialization");
+        if (!strcmp(argv[1], "startup-fault")) *(volatile unsigned *)0 = 42;
+        cyc_diagnostics_exit(0); return 0;
+    }
     if (!strcmp(argv[1], "off")) {
         cyc_diagnostics_sync(); cyc_diagnostics_note("must not create files");
         assert(!cyc_diagnostics_active()); return 0;
