@@ -284,4 +284,28 @@ static inline uint32_t nes_cart_identity(const NesCartInfo *c)
             h = (h ^ ((fields[i] >> shift) & 255)) * 16777619u;
     return h;
 }
+
+/* A container revision is not a different cartridge. Keep the generated hash
+ * ABI unchanged, but accept either iNES encoding of the same resolved board.
+ * Multi-region NES 2.0 images select NTSC by default, just like timing 0
+ * (cyc_cart_region); PAL-only and Dendy remain distinct. Mapper 71's legacy
+ * format flag changes its mirroring-register decode, so it is not an alias.
+ * Call only after the ordinary image/board validation. No metadata is changed
+ * and all ROM/RAM geometry, wiring, trainer and console fields remain checked. */
+static inline bool nes_cart_identity_compatible(const NesCartInfo *c, uint32_t expected)
+{
+    if (nes_cart_identity(c) == expected) return true;
+    NesCartInfo alias = *c;
+    for (unsigned format = 0; format <= 1; ++format) {
+        if (c->mapper == 71 && format != c->nes2) continue;
+        alias.nes2 = (uint8_t)format;
+        alias.timing = c->timing;
+        if (nes_cart_identity(&alias) == expected) return true;
+        if (c->timing == 0 || c->timing == 2) {
+            alias.timing = c->timing ^ 2;
+            if (nes_cart_identity(&alias) == expected) return true;
+        }
+    }
+    return false;
+}
 #endif

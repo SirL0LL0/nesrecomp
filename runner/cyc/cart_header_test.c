@@ -2,8 +2,69 @@
 #include <stdio.h>
 #include <stdlib.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); exit(1); } } while (0)
+
+static void native_identity_checks(void)
+{
+    /* The same NROM payload in legacy, NES 2.0 NTSC and World containers.
+     * Keep old generated identities stable: a runtime update needs no codegen. */
+    uint8_t legacy[16] = {'N','E','S',26,2,1,1};
+    uint8_t modern[16] = {'N','E','S',26,2,1,1,8,0,0,0,0,2,0,0,1};
+    NesCartInfo old, world, ntsc;
+    CHECK(nes_cart_header(legacy, sizeof(legacy), &old));
+    CHECK(nes_cart_header(modern, sizeof(modern), &world));
+    CHECK(nes_cart_variant_supported(&old) && nes_cart_variant_supported(&world));
+    modern[12] = 0;
+    CHECK(nes_cart_header(modern, sizeof(modern), &ntsc));
+    uint32_t hash = nes_cart_identity(&old);
+    CHECK(hash != nes_cart_identity(&world) && hash != nes_cart_identity(&ntsc));
+    CHECK(nes_cart_identity_compatible(&world, hash));
+    CHECK(nes_cart_identity_compatible(&ntsc, hash));
+    CHECK(nes_cart_identity_compatible(&old, nes_cart_identity(&world)));
+    CHECK(nes_cart_identity_compatible(&old, nes_cart_identity(&ntsc)));
+    CHECK(nes_cart_identity_compatible(&world, nes_cart_identity(&ntsc)));
+    CHECK(world.nes2 == 1 && world.timing == 2); /* inspection never rewrites input */
+
+    /* Reject changes to every hardware field; format aliases must not turn
+     * the metadata guard into a PRG-only gate. */
+#define REJECT(field, value) do { NesCartInfo bad = world; bad.field = (value); \
+    CHECK(!nes_cart_identity_compatible(&bad, hash)); } while (0)
+    REJECT(prg_size, 16384); REJECT(chr_size, 0);
+    REJECT(prg_ram, 8192); REJECT(prg_nvram, 8192);
+    REJECT(chr_ram, 8192); REJECT(chr_nvram, 8192);
+    REJECT(mapper, 3); REJECT(submapper, 1);
+    REJECT(four_screen, 1); REJECT(vertical, 0);
+    REJECT(battery, 1); REJECT(trainer, 1);
+    REJECT(timing, 1); REJECT(timing, 3); REJECT(console, 1);
+#undef REJECT
+    NesCartInfo pal = world;
+    pal.timing = 1;
+    CHECK(!nes_cart_identity_compatible(&old, nes_cart_identity(&pal)));
+    CHECK(!nes_cart_identity_compatible(&world, nes_cart_identity(&pal)));
+
+    /* MMC3 explicit NES 2.0 RAM agrees only when its resolved geometry is the
+     * same as the legacy default. */
+    legacy[6] = 0x41;
+    modern[6] = 0x41; modern[10] = 7;
+    CHECK(nes_cart_header(legacy, sizeof(legacy), &old));
+    CHECK(nes_cart_header(modern, sizeof(modern), &ntsc));
+    CHECK(old.prg_ram == 8192 && ntsc.prg_ram == 8192);
+    CHECK(nes_cart_identity_compatible(&ntsc, nes_cart_identity(&old)));
+    ntsc.prg_ram = 16384;
+    CHECK(!nes_cart_identity_compatible(&ntsc, nes_cart_identity(&old)));
+
+    /* Mapper 71 is deliberately format-sensitive in hw_mapper.c. */
+    old.mapper = 71; old.prg_ram = 0;
+    ntsc = old; ntsc.nes2 = 1;
+    CHECK(!nes_cart_identity_compatible(&ntsc, nes_cart_identity(&old)));
+    CHECK(!nes_cart_identity_compatible(&old, nes_cart_identity(&ntsc)));
+    old.submapper = ntsc.submapper = 1;
+    CHECK(!nes_cart_identity_compatible(&ntsc, nes_cart_identity(&old)));
+    CHECK(!nes_cart_identity_compatible(&old, nes_cart_identity(&ntsc)));
+}
+
 int main(void)
 {
+    native_identity_checks();
     uint8_t h[16] = {'N','E','S',26,2,1,0,8};
     NesCartInfo c;
     CHECK(nes_cart_header(h,16,&c));

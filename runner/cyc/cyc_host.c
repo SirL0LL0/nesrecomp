@@ -1375,7 +1375,7 @@ session_restart:
         return 2;
     }
 #ifndef CYC_ORACLE
-    if (cyc_native_program_name && nes_cart_identity(&cart_info) != cyc_native_cart_hash) {
+    if (cyc_native_program_name && !nes_cart_identity_compatible(&cart_info, cyc_native_cart_hash)) {
         cyc_diagnostics_error("Cartridge metadata differs from the compiled program; regenerate native code\n");
 #if defined(CYC_WITH_SDL)
         if (!headless) cyc_sdl_error_box("Cannot start game", "The ROM cartridge metadata differs from this build. Select the matching original ROM in the launcher.");
