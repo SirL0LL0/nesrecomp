@@ -5,7 +5,7 @@
  * default) every entry point is a no-op and the per-frame renderer in
  * ppu_renderer.c is used unchanged — the build is byte-identical.
  *
- * Model (see ACCURACY_PHASE_PLAN.md §Phase 3):
+ * Legacy dot-renderer model:
  *   - The dot clock is SLAVED to the existing frame driver (s_ops_count /
  *     OPS_PER_FRAME in runtime.c), it does NOT replace the NMI/VBlank timing.
  *   - The dot clock free-runs through BOTH the NMI handler and the main loop,

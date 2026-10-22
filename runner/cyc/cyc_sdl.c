@@ -981,7 +981,7 @@ static void tcp_setup(void)
     const char *env = getenv("NESRECOMP_CYC_TCP");
     if (!port && env && *env) port = atoi(env);
     if (!port) {
-        /* debug.ini beside the executable turns it on at the documented port (TCP.md) */
+        /* debug.ini beside the executable turns it on at the documented port (docs/TCP.md) */
         char ini[1100];
         snprintf(ini, sizeof(ini), "%s", cyc_settings_default_path());
         char *cut = strrchr(ini, '/');

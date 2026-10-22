@@ -1,7 +1,7 @@
 /*
  * cyc_tcp.h - the cycle host's TCP debug server: JSON over newline on
  * 127.0.0.1, one client at a time, polled once per host loop (never
- * blocking). The protocol is the function-level runtime's (TCP.md): send
+ * blocking). The protocol is the function-level runtime's (docs/TCP.md): send
  * {"cmd":"state","id":7}\n, receive one line of JSON ({"id":7,"ok":true,...}
  * or {"id":7,"ok":false,"err":"..."}); a bare command name also works.
  *

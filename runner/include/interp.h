@@ -7,7 +7,7 @@
  * the control-flow path. The interpreter runs the missed code against the
  * shared CPU/memory state and hands control back to recompiled code at the
  * proper boundary, so the game keeps running and EVERY miss in a session is
- * surfaced in one run (see docs/PHASE1_INTERP_FALLBACK_PLAN.md).
+ * surfaced in one run (see docs/INTERPRETER.md).
  *
  * Semantics mirror recompiler/src/code_generator.c exactly (same flag macros,
  * addressing, bus helpers) and the decode table is shared

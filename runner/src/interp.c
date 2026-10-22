@@ -1,7 +1,7 @@
 /*
  * interp.c — 6502 interpreter fallback tier.
  *
- * See interp.h and docs/PHASE1_INTERP_FALLBACK_PLAN.md for the design.
+ * See interp.h and docs/INTERPRETER.md for the design.
  *
  * The opcode SEMANTICS here are a faithful mirror of code_generator.c's
  * emit_instruction: same flag macros (FLAG_NZ / NZC_ADD / NZC_SUB), same

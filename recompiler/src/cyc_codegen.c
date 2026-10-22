@@ -69,7 +69,7 @@
  *
  * One C function per 1KB keeps individual functions small, and one
  * translation unit per bank keeps them compilable in parallel (see
- * SPLITGEN_MIGRATION.md for the same split in the function-level output). */
+ * docs/GENERATED_CODE.md for the same split in the function-level output). */
 #define SLOT_SHIFT      12
 #define SLOT_SIZE       (1u << SLOT_SHIFT)
 #define SLOT_COUNT      8
@@ -1419,7 +1419,7 @@ static bool slot_used(const Program *p, uint32_t bank, uint32_t slot) {
 /* One translation unit per PRG bank: for each slot that bank is compiled in,
  * a bitmap of instruction starts and a table of 1KB chunk functions, then the
  * chunks themselves. Splitting by bank keeps the units independent and
- * compilable in parallel, as SPLITGEN_MIGRATION.md describes for the
+ * compilable in parallel, as docs/GENERATED_CODE.md describes for the
  * function-level output. */
 static void emit_bank_file(const Program *p, const char *path, uint32_t bank) {
     FILE *f = open_out(path);

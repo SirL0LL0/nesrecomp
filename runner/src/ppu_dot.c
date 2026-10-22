@@ -1,7 +1,7 @@
 /*
  * ppu_dot.c — cycle-driven, per-scanline PPU renderer (Phase 3, EXPERIMENTAL).
  *
- * See ppu_dot.h and ACCURACY_PHASE_PLAN.md §Phase 3 for the model. Engaged only
+ * See ppu_dot.h for the legacy dot-renderer model. Engaged only
  * when NESRECOMP_DOT_PPU is set in the environment AND the framebuffer is the
  * vanilla 256px width (widescreen falls back to the per-frame renderer). When
  * disabled, every entry point returns immediately and the build behaves exactly

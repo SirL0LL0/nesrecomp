@@ -1,4 +1,10 @@
-# NESRecomp Recompiler Coverage Audit
+# Recompiler coverage audit — 2026-05-03
+
+> Historical evidence. This is the May 2026 recompiler audit, retained for its findings and test inventory.
+> Status claims, paths and reproduction recipes describe that checkpoint;
+> they are not a current qualification of the cycle backend. Use the
+> [project README](../../README.md) and [cycle runtime guide](../../runner/cyc/README.md)
+> for current behavior. Code paths below are relative to the repository root.
 
 Date: 2026-05-03
 

@@ -1,4 +1,10 @@
-# Development Log — nesrecomp multi-tier worktree (`_wt-multitier`)
+# Legacy runner bring-up history
+
+> Historical evidence. These June 2026 multi-tier worktree notes preserve dispatch investigations and measurements.
+> Status claims, paths and reproduction recipes describe that checkpoint;
+> they are not a current qualification of the cycle backend. Use the
+> [project README](../../README.md) and [cycle runtime guide](../../runner/cyc/README.md)
+> for current behavior. Code paths below are relative to the repository root.
 
 Branch: `feat/kirby-mmc3-trampoline`. Game under bring-up: **Kirby's Adventure**
 (MMC3 / mapper 4, 512KB PRG). This log records the recompiler/runner changes made

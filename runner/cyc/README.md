@@ -1245,7 +1245,7 @@ TCP commands. A game built with `MODS` has the launcher's Mods screen and the
 runtime menu's Mods rows ([Game mods](#game-mods)).
 
 **TCP** (`cyc_tcp.h`; `--tcp PORT`, `NESRECOMP_CYC_TCP`, or `debug.ini` beside
-the executable for port 4370): JSON over newline as in [TCP.md](../../TCP.md).
+the executable for port 4370): JSON over newline as in [debug protocol](../../docs/TCP.md).
 `key` and `pad` (an SDL virtual controller) hold input through the bindings,
 `action` holds an action, `disk`, `menu`, `hle`, `screenshot` (layer
 `picture`: the game alone; `ui`: everything the window drew), `state`,

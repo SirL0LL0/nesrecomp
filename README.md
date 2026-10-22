@@ -341,7 +341,7 @@ manifest and compare generated-source or build sizes before enabling the option
 for a game: some titles save substantially, while titles without proven groups
 may see no reduction. `[[dedup_exclude]]` can keep a member independent, and
 `[[replace_func]] scope = "group"` can replace an entire proven group. See
-[`MODDING.md`](MODDING.md#shared-cross-bank-functions) for those directives and
+[modding guide](docs/MODDING.md#shared-cross-bank-functions) for those directives and
 external replacement examples.
 
 ### Function Discovery: Table-Run Scanner
@@ -456,6 +456,19 @@ default cycle backend, a separate game configuration and a baseline host.
 The [cycle-project reference](runner/cyc/PROJECTS.md) documents desktop/UI,
 hook and netplay integration. Keep title-specific addresses and behavior in
 the game repository; generated code stays in build output.
+
+## Developer references
+
+| Guide | Contents |
+| --- | --- |
+| [Cycle host integration](runner/cyc/PROJECTS.md) | Current game project and runtime integration |
+| [Generated C](docs/GENERATED_CODE.md) | Translation units, shared declarations and game build integration |
+| [Bank extraction](docs/EXTRACTION.md) / [dispatch patterns](docs/PATTERNS.md) | ROM analysis and verified 6502 control-flow idioms |
+| [Modding](docs/MODDING.md) / [mod packages](docs/MOD_PACKAGES.md) | Cross-bank sharing, overrides and trusted plugins |
+| [Debug protocol](docs/TCP.md) | Runtime inspection and control |
+| [Legacy interpreter bridge](docs/INTERPRETER.md) | Dispatch fallback, continuations and stack boundaries |
+| [Legacy differential co-simulation](docs/COSIM.md) | Oracle comparisons and measurement limits |
+| [Historical validation](docs/validation/README.md) | Dated audits and bring-up evidence |
 
 ## Cycle-Accurate Mode
 

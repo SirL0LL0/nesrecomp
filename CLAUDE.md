@@ -34,7 +34,7 @@ What stands instead:
 - "Do not guess 6502 behavior" is unchanged: verify against the ROM or the
   disassembly before acting, and validate a tool's first output by hand.
 
-See `EXTRACTION.md` for bank extraction procedures per game.
+See `docs/EXTRACTION.md` for bank extraction procedures per game.
 
 ---
 
@@ -62,12 +62,12 @@ the next regeneration and the fix will be silently lost.
 ---
 
 ## ████████████████████████████████████████████████████████
-## ██  RULE 2: CHECK PATTERNS.md BEFORE ANY GHIDRA WORK  ██
+## ██  RULE 2: CHECK docs/PATTERNS.md BEFORE ANY GHIDRA WORK  ██
 ## ████████████████████████████████████████████████████████
 
-Before implementing ANY function discovered via Ghidra tracing, read `PATTERNS.md`.
+Before implementing ANY function discovered via Ghidra tracing, read `docs/PATTERNS.md`.
 
-If a function does ANY of these, stop and check PATTERNS.md:
+If a function does ANY of these, stop and check docs/PATTERNS.md:
 - PLA/PHA that touches the return address
 - RTS used as a computed goto (jump through stack-stored address)
 - Inline data bytes immediately following a JSR
@@ -218,10 +218,9 @@ cmake --build build --config Release
 | `runner/src/launcher.c` | ROM discovery, CRC32 verify, main() | Yes |
 | `runner/runner.cmake` | Source list for game project CMakeLists | Yes |
 | `runner/include/game_extras.h` | Per-game hook interface | Yes |
-| `PATTERNS.md` | 6502 dispatch idioms | Reference |
-| `EXTRACTION.md` | Bank extraction procedures | Reference |
-| `COSIM.md` | Differential co-simulation tooling (recomp-vs-Mesen first-divergence) | Reference |
-| `ENHANCEMENTS.md` | Co-sim deferred-capability roadmap + worked examples | Reference |
+| `docs/PATTERNS.md` | 6502 dispatch idioms | Reference |
+| `docs/EXTRACTION.md` | Bank extraction procedures | Reference |
+| `docs/COSIM.md` | Differential co-simulation tooling (recomp-vs-Mesen first-divergence) | Reference |
 
 ---
 
@@ -244,7 +243,7 @@ Rationale: <why implemented this way>
 **Static recompiler.** 6502 binary → C → native x64. *(Corrected 2026-09-25: the
 previous text said "No interpreter loop"; `runner/src/interp.c` is a bounded
 interpreter BRIDGE -- dispatch misses and the save-state / rollback guest-resume
-continuation run through it, loudly counted. See docs/PHASE1_INTERP_FALLBACK_PLAN.md
+continuation run through it, loudly counted. See docs/INTERPRETER.md
 and docs/NETPLAY.md "Replay model" for the honesty conditions it meets.)*
 **JSR = direct C function call.** `func_C123()` calls `func_C456()` directly.
 **NMI is the frame driver.** Runner calls func_NMI() at 60Hz wall-clock.

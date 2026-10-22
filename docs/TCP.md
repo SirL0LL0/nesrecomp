@@ -1,4 +1,4 @@
-# TCP.md — NESRecomp Debug Server Protocol
+# NESRecomp debug server protocol
 
 The TCP debug server is the **only** sanctioned debugging interface for
 nesrecomp game projects. If a piece of state cannot be observed over TCP,

@@ -1,6 +1,12 @@
-# NES_ACCURACY_BURNDOWN.md — nesrecomp 7-axis accuracy scorecard
+# Legacy accuracy investigations — June 2026
 
-> Living scorecard. Modeled 1:1 on `psxrecomp/_wt-tomba2/.../ACCURACY_BURNDOWN.md`.
+> Historical evidence. This is the June 2026 seven-axis scorecard for the legacy function-level runner.
+> Status claims, paths and reproduction recipes describe that checkpoint;
+> they are not a current qualification of the cycle backend. Use the
+> [project README](../../README.md) and [cycle runtime guide](../../runner/cyc/README.md)
+> for current behavior. Code paths below are relative to the repository root.
+
+> Original scorecard. Modeled 1:1 on `psxrecomp/_wt-tomba2/.../ACCURACY_BURNDOWN.md`.
 > Branch: `accuracy/nes-burndown` (engine `_acc/nesrecomp`, game `_acc/SuperMarioBrosRecomp`).
 > Stomping ground: **Super Mario Bros** (Mapper 0, simplest APU/PPU usage).
 > Last updated: 2026-06-28.
@@ -533,7 +539,7 @@ advance. Two scoped responses:
 > **Stack-page fidelity boundary (slice state-001):** JSR/RTS modeled as C call/return →
 > the recomp never pushes 6502 return addresses, so the stack page ($0100-$01FF) below the
 > live SP is NOT bit-faithful (17 dead bytes differ vs Mesen on SMB; benign — never read).
-> Matters only for games that read the stack region directly (PATTERNS.md).
+> Matters only for games that read the stack region directly (docs/PATTERNS.md).
 >
 > **MM3 (MMC3) coverage — REFRAMED 2026-06-28 (was mis-attributed to banking):** the 7
 > "misses" are a **coroutine-kernel dispatch** gap, NOT a bank-switch gap. MM3 runs a
@@ -549,13 +555,13 @@ advance. Two scoped responses:
 > `extra_func` band-aid as closing this axis.
 
 - Static recompiler: 6502→C, JSR/RTS as call/return, dispatch via `*_dispatch.c`.
-  PATTERNS.md catalogs stack-RTS computed-goto / inline-data-after-JSR idioms.
+  docs/PATTERNS.md catalogs stack-RTS computed-goto / inline-data-after-JSR idioms.
 
 **Gaps:**
 - Self-modifying / bank-loaded code: no dirty-RAM reinterpretation path documented for
   SMB (mapper-0, low risk; matters for MMC1/3 titles).
 - Dispatch-miss completeness: misses are logged but **not aggregated** — no
-  instruction-coverage / unresolved-indirect histogram (`COVERAGE.md:254`).
+  instruction-coverage / unresolved-indirect histogram (`docs/validation/recompiler-coverage-2026-05-03.md (risk ranking)`).
 - Backend equivalence (compiled == runner interp) is necessary, **not** sufficient (§0).
 
 **Validation:** build an instruction-coverage + dispatch-miss tool (port

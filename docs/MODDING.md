@@ -1,7 +1,7 @@
 # NESRecomp Modding Framework
 
 For installable `.nesmod` packages, recomp-ui registration, stock-ROM targets,
-and trusted static plugins, see [docs/MOD_PACKAGES.md](docs/MOD_PACKAGES.md).
+and trusted static plugins, see [mod packages](MOD_PACKAGES.md).
 
 The NESRecomp runner provides game-agnostic systems for overriding text
 and tile graphics at runtime.  Games built on NESRecomp inherit these

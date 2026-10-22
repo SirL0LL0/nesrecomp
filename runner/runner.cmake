@@ -47,7 +47,7 @@ set(NESRECOMP_RUNNER_SOURCES
     ${NESRECOMP_RUNNER_ROOT}/src/coroutine.c
     # Interpreter fallback tier + the shared 6502 decode table from the
     # recompiler (single source of truth, so interpreted/recompiled decode
-    # cannot diverge). See docs/PHASE1_INTERP_FALLBACK_PLAN.md.
+    # cannot diverge). See docs/INTERPRETER.md.
     ${NESRECOMP_RUNNER_ROOT}/src/interp.c
     ${NESRECOMP_RUNNER_ROOT}/../recompiler/src/cpu6502_decoder.c
     ${NESRECOMP_RUNNER_ROOT}/src/keybinds.c
@@ -76,7 +76,7 @@ set(NESRECOMP_RUNNER_SOURCES
     ${NESRECOMP_RUNNER_ROOT}/src/mod_function_hooks.c
     # Id-keyed per-mod save-state extension registry. Always compiled for the
     # same reason as mod_function_hooks.c above; savestate.c calls into it
-    # unconditionally. See MODDING.md and runner/include/mod_savestate.h.
+    # unconditionally. See docs/MODDING.md and runner/include/mod_savestate.h.
     ${NESRECOMP_RUNNER_ROOT}/src/mod_savestate.c
 )
 

@@ -1,4 +1,7 @@
-# Split-gen migration (real parallel-compilable generated C)
+# Generated C layout and integration
+
+This guide covers function-level (`legacy`) output. For the current cycle
+backend, use the [cycle project guide](../runner/cyc/PROJECTS.md).
 
 The recompiler now emits the generated game code as **genuinely independent
 translation units** instead of the old single umbrella that textually
@@ -17,7 +20,7 @@ This is required, not cosmetic: a `_body` can be called directly (the
 inline-pointer JSR idiom) from another function that may now live in a
 different TU. It was only safe before because everything was one TU.
 
-Measured on Metroid: 13 MB single TU → 18 parallel TUs (none > 1.5 MB);
+Recorded at the original split-output checkpoint on Metroid: 13 MB single TU → 18 parallel TUs (none > 1.5 MB);
 `-j16` compile **29.5s → 10.2s** (~2.9×). Generated function bytes unchanged.
 
 ## Migrating a game to the split output

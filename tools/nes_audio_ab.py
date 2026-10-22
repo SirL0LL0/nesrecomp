@@ -4,7 +4,7 @@ accuracy-grade emulator reference (Mesen via tools/nesref NESREF_WAV).
 
 NES port of snesrecomp tools/audio_ab_diff.py + cosim/dspout_compare.py, and a
 reimplementation of the lost accuracy-burndown audio-slice analyzer (the
-"timbre L1" metric — see NES_ACCURACY_BURNDOWN.md Axis 5b; committed this time).
+"timbre L1" metric — see docs/validation/accuracy-history.md Axis 5b; committed this time).
 
 WHY drift-tolerant (not bit-exact): the recomp emits one 735-sample frame per
 NMI at the video-frame cadence, while Mesen resamples its cycle-exact APU to
