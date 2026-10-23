@@ -3,19 +3,32 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+/* SSE2 is part of the supported x86-64 host ABI. Other targets, including
+ * baseline 32-bit x86, keep the same interface with portable byte operations.
+ * Never import or execute x86 intrinsics on those targets. */
+#if !defined(NESRECOMP_PPU_HLE_FORCE_PORTABLE) && \
+    (defined(_M_X64) || defined(__x86_64__)) && !defined(_M_ARM64EC)
+#define NESRECOMP_PPU_HLE_SSE2 1
 #include <emmintrin.h>
-#ifdef _MSC_VER
+#else
+#define NESRECOMP_PPU_HLE_SSE2 0
+#endif
+#if NESRECOMP_PPU_HLE_SSE2 && defined(_MSC_VER)
 #include <intrin.h>
 #endif
 
 static inline unsigned ppu_hle_first_sprite(unsigned mask)
 {
-#ifdef _MSC_VER
+#if NESRECOMP_PPU_HLE_SSE2 && defined(_MSC_VER)
     unsigned long index;
     _BitScanForward(&index, mask);
     return (unsigned)index;
-#else
+#elif defined(__GNUC__) || defined(__clang__)
     return (unsigned)__builtin_ctz(mask);
+#else
+    unsigned index = 0;
+    while (!(mask & 1u)) { mask >>= 1; ++index; }
+    return index;
 #endif
 }
 
@@ -79,16 +92,24 @@ static inline unsigned ppu_hle_sprite_mask(const uint8_t x[8],
                                            const uint8_t lo[8],
                                            const uint8_t hi[8], bool skipped)
 {
+#if NESRECOMP_PPU_HLE_SSE2
     __m128i vx = _mm_loadl_epi64((const __m128i *)x);
     __m128i ready = skipped ? _mm_set1_epi8(-1) : _mm_cmpeq_epi8(vx, _mm_setzero_si128());
     __m128i bits = _mm_or_si128(_mm_loadl_epi64((const __m128i *)lo),
                                _mm_loadl_epi64((const __m128i *)hi));
     return (unsigned)_mm_movemask_epi8(_mm_and_si128(bits, ready)) & 255u;
+#else
+    unsigned mask = 0;
+    for (unsigned i = 0; i < 8; ++i)
+        if ((skipped || !x[i]) && ((lo[i] | hi[i]) & 128)) mask |= 1u << i;
+    return mask;
+#endif
 }
 
 static inline unsigned ppu_hle_sprite_shift(uint8_t x[8], uint8_t lo[8],
                                             uint8_t hi[8], bool render, bool skipped)
 {
+#if NESRECOMP_PPU_HLE_SSE2
     __m128i vx = _mm_loadl_epi64((const __m128i *)x);
     __m128i ready = skipped ? _mm_set1_epi8(-1) : _mm_cmpeq_epi8(vx, _mm_setzero_si128());
     if (!skipped) _mm_storel_epi64((__m128i *)x, _mm_subs_epu8(vx, _mm_set1_epi8(1)));
@@ -100,6 +121,19 @@ static inline unsigned ppu_hle_sprite_shift(uint8_t x[8], uint8_t lo[8],
     _mm_storel_epi64((__m128i *)lo, vl);
     _mm_storel_epi64((__m128i *)hi, vh);
     return (unsigned)_mm_movemask_epi8(ready) & 255u;
+#else
+    unsigned shifted = 0;
+    for (unsigned i = 0; i < 8; ++i) {
+        bool ready = skipped || !x[i];
+        if (!skipped && x[i]) --x[i];
+        if (render && ready) {
+            lo[i] = (uint8_t)(lo[i] << 1);
+            hi[i] = (uint8_t)(hi[i] << 1);
+            shifted |= 1u << i;
+        }
+    }
+    return shifted;
+#endif
 }
 
 #endif
