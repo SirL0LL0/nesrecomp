@@ -279,3 +279,11 @@ the seam check improves from 1,145/6,656 mismatches to zero. A 200-frame
 replay preserves the entire guest/mod state, native pixels, hardware traces
 and PCM exactly. Current-build restore, repeated rendering and Fit resize
 554→426→554 pass. Only the corrected SMB1 handoff needs human recheck.
+
+The owner then accepted the improved SMB1 presentation and explicitly approved
+integration on 2026-10-23. SMB3 had already passed. At integration, current SMB1
+master was found to contain `072cd2d`, an equivalent direct 9-bit camera fix;
+that active fix is preserved alongside the approved bridge correction.
+Both current title masters' existing Windows x64 HLE defaults are preserved.
+The LLE timing results above do not establish speedups for those HLE defaults;
+no combined CPU claim or new timing campaign is added during integration.
