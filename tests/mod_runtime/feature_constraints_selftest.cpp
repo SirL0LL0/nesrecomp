@@ -22,8 +22,8 @@ int main() {
     const fs::path root=fs::absolute("feature-constraint-fixtures");
     try {
         package(root,"test.coop","exclusive_group=\"player-controller\"\nexclusive_groups=[\"display-mode\"]");
-        package(root,"test.wide","exclusive_group=\"display-mode\"");
-        package(root,"test.player","exclusive_group=\"player-controller\"");
+        package(root,"test.wide","exclusive_group=\"display-mode\"\nexperimental=true");
+        package(root,"test.player","exclusive_group=\"player-controller\"\nexperimental=false");
         check(nes_mod_register_activation_plugin("test.coop",coop),"register co-op");
         check(nes_mod_register_activation_plugin("test.wide",wide),"register widescreen");
         check(nes_mod_register_activation_plugin("test.player",player),"register player");
@@ -36,6 +36,12 @@ int main() {
         check(NESRecomp::mod_runtime_initialize(root,"test-game","00000000",&error),error.c_str());
         check(!NESRecomp::mod_runtime_commit({},&error),"hand-edited conflicting state was accepted");
         auto *p=NESRecomp::mod_runtime_launcher_provider();
+        check(p->feature_count(p->ctx)==3,"feature count changed");
+        for(int i=0;i<p->feature_count(p->ctx);++i) {
+            RecompLauncherCModFeature f{};
+            check(p->feature_get(p->ctx,i,&f),"get feature metadata");
+            check(f.channel==(std::string(f.package_id)=="test.wide" ? RECOMP_MOD_CHANNEL_EXPERIMENTAL : RECOMP_MOD_CHANNEL_STABLE),"experimental channel not passed to launcher");
+        }
         check(p->feature_enable(p->ctx,"test.coop","mode",1),"enable co-op");
         check(NESRecomp::mod_runtime_commit({},&error),"launcher failed to clear both conflict groups");
         NESRecomp::mod_runtime_activate_plugins();
@@ -47,6 +53,8 @@ int main() {
         NESRecomp::mod_runtime_activate_plugins();
         check(active[0]==1 && active[1]==1 && active[2]==1,"singular group behavior changed");
         check(nes_mod_local_only_reason()==nullptr,"disabled co-op still blocks online launch");
+        package(root,"test.invalid","experimental=\"true\"");
+        check(!NESRecomp::mod_runtime_initialize(root,"test-game","00000000",&error),"non-boolean experimental flag accepted");
         package(root,"test.invalid","exclusive_groups=[\"bad group\"]");
         check(!NESRecomp::mod_runtime_initialize(root,"test-game","00000000",&error),"invalid group id accepted");
         // Exact directory created above, never a path supplied by the caller.

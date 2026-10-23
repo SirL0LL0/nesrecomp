@@ -107,6 +107,10 @@ mods/
 
 Built-in features should default to disabled.
 
+A `[[feature]]` may set `experimental = true` to show recomp-ui's standard
+Experimental badge in the Mods menu. This metadata does not enable the feature
+or change its validation. Omitted or `false` keeps the stable channel.
+
 ## Required owner ROMs
 
 A feature may require a second, user-owned source ROM without treating that
