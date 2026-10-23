@@ -14,6 +14,12 @@ adaptive ultrawide views, optional voxel presentation, runtime translations
 and modern controller support**. Features are title-specific, and the
 framework's beta status does not make every game or mod complete.
 
+Cycle-backend desktop builds with recomp-ui include a **save-state browser
+(F7)** and **rewind (F8)**. The browser has twelve thumbnail slots; rewind lets
+you preview earlier moments and resume from one. Controller shortcuts are
+Back + L3 and Back + R3. History starts enabled and can be adjusted in the
+launcher. Local state changes are unavailable during online play.
+
 **[Play a game](#game-projects)** · **[Start a new port without AI](docs/GETTING_STARTED.md)**
 
 ## Super Mario Bros.: four players, one adventure

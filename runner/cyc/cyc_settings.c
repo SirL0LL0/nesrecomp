@@ -23,6 +23,9 @@ void cyc_settings_default(CycSettings *s)
     s->audio_enabled = 1;
     s->volume = 100;
     s->skip_launcher = 0;
+    s->rewind_enabled = 1;
+    s->rewind_depth = 100;
+    s->rewind_interval = 4;
     s->view_mode = 0;
     s->zapper_mouse = s->zapper_crosshair = 1;
     s->hdpack_enabled = 1;
@@ -74,7 +77,7 @@ static bool parse_int(const char *v, int *out)
     return true;
 }
 
-typedef enum { SEC_NONE, SEC_DISPLAY, SEC_AUDIO, SEC_INPUT, SEC_LAUNCHER, SEC_FDS, SEC_KEYS, SEC_PADS, SEC_GAME, SEC_ZAPPER, SEC_NETPLAY } Section;
+typedef enum { SEC_NONE, SEC_DISPLAY, SEC_AUDIO, SEC_INPUT, SEC_LAUNCHER, SEC_FDS, SEC_KEYS, SEC_PADS, SEC_GAME, SEC_ZAPPER, SEC_NETPLAY, SEC_REWIND } Section;
 
 bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSettingsGame *game)
 {
@@ -100,6 +103,7 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
             else if (eq_ci(name, "Input")) sec = SEC_INPUT;
             else if (eq_ci(name, "Launcher")) sec = SEC_LAUNCHER;
             else if (eq_ci(name, "Netplay")) sec = SEC_NETPLAY;
+            else if (eq_ci(name, "Rewind")) sec = SEC_REWIND;
             else if (eq_ci(name, "FDS")) sec = SEC_FDS;
             else if (eq_ci(name, "Game")) sec = SEC_GAME;
             else if (!strncmp(name, "Keyboard.", 9) || !strncmp(name, "Gamepad.", 8)) {
@@ -137,6 +141,11 @@ bool cyc_settings_load(CycSettings *s, const char *path, FILE *log, const CycSet
             break;
         case SEC_NETPLAY:
             if (eq_ci(key,"PlayerName")) snprintf(s->netplay_player_name,sizeof s->netplay_player_name,"%s",val);
+            break;
+        case SEC_REWIND:
+            if (eq_ci(key,"Enabled")) bad = !parse_int(val,&v) || (s->rewind_enabled = v != 0, 0);
+            else if (eq_ci(key,"Depth")) bad = !parse_int(val,&v) || (s->rewind_depth = clampi(v,4,240), 0);
+            else if (eq_ci(key,"Interval")) bad = !parse_int(val,&v) || (s->rewind_interval = clampi(v,1,60), 0);
             break;
         case SEC_INPUT:
             if (!strncmp(key, "Player", 6) && key[6] >= '1' && key[6] < '1' + CYC_INPUT_PLAYERS) {
@@ -216,6 +225,7 @@ bool cyc_settings_save(const CycSettings *s, const char *path, const CycSettings
         fprintf(f, "Player%dSource = %d\nPlayer%dDevice = %s\nPlayer%dDeadzone = %d\n", p + 1, s->bind.source[p], p + 1,
                 s->bind.device[p], p + 1, s->bind.deadzone[p]);
     fprintf(f, "[Launcher]\nSkipLauncher = %d\n", s->skip_launcher);
+    fprintf(f, "[Rewind]\nEnabled = %d\nDepth = %d\nInterval = %d\n", s->rewind_enabled, s->rewind_depth, s->rewind_interval);
     fprintf(f,"[Netplay]\nPlayerName = %s\n",s->netplay_player_name);
     fprintf(f, "[Zapper]\nMouse = %d\nCrosshair = %d\n", s->zapper_mouse, s->zapper_crosshair);
     fprintf(f, "[FDS]\n# on, off, or default (the game's own setting)\n");

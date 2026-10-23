@@ -16,7 +16,7 @@ disk to side B, then loads it).
                times out a press only shows it again; the controller's bound
                button swaps once more (back to side A); the picture never
                holds the toast, the window's frame does; the HLE axis set as
-               the menu sets it lands in config.ini; F1-F7 do nothing
+               the menu sets it lands in config.ini; F1-F6 do nothing
   rebinding    a config.ini that binds Disk to K: K works, D does nothing
   menu         (a build with recomp-ui) the Menu key opens recomp-ui's runtime
                menu over the game, which pauses; closing it resumes
@@ -188,7 +188,7 @@ def production(exe, image, bios, out, recomp_ui):
     check(s['disk_binding'] == 'D / LB', f'disk binding {s["disk_binding"]}')
     check(s['recomp_ui'] == recomp_ui, f'recomp_ui {s["recomp_ui"]}')
     # dev keys do nothing in production
-    for k in ('F1', 'F3', 'F4', 'F6', 'F7'):
+    for k in ('F1', 'F3', 'F4', 'F6'):
         w.ok('key', name=k, frames=3)
     s = w.wait_frames(10)
     check(s['side'] == 0 and not s['toast']['visible'], f'a dev key acted in production: {s}')

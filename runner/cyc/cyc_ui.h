@@ -33,7 +33,7 @@ typedef struct SDL_Renderer SDL_Renderer;
 union SDL_Event;
 
 /* What the menu needs from the window. */
-typedef struct {
+typedef struct CycUiHost {
     struct CycSettings *settings;         /* live; the menu edits it */
     const CycHostExtras *extras;          /* the game's, or NULL */
     bool fds;                             /* a Famicom Disk System program */
@@ -52,6 +52,11 @@ typedef struct {
     const void *mods;
     const char *image;
     void (*mods_changed)(void);
+    const char *state_path;               /* base slot path beside this game's saves */
+    bool (*state_serialize)(uint8_t **out, size_t *len, char *err, size_t cap);
+    bool (*state_restore)(const uint8_t *data, size_t len, char *err, size_t cap);
+    bool (*states_available)(void);       /* false during an online session */
+    double frame_seconds;                /* NTSC/PAL history timestamps */
 } CycUiHost;
 
 /* The launcher, before the image loads. `settings` is edited in place; on
@@ -78,6 +83,7 @@ void cyc_ui_shutdown(void);
 void cyc_ui_process_event(const union SDL_Event *ev);   /* ImGui's view of every event */
 bool cyc_ui_menu_open(void);
 void cyc_ui_toggle_menu(void);
+bool cyc_ui_open_states(bool rewind);     /* replaces the ordinary runtime menu */
 /* Menu navigation (RecompRuntimeUiInput values). */
 void cyc_ui_nav(int input, bool repeat);
 /* The toast (NULL, NULL clears it). */

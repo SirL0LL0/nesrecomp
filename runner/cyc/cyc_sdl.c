@@ -79,6 +79,7 @@
 #include "../../common/nes_fds.h"
 #ifdef CYC_WITH_RECOMP_UI
 #include "cyc_ui.h"
+#include "cyc_state_ui.h"
 #include "recomp_runtime_ui.h"
 #endif
 
@@ -265,6 +266,7 @@ static bool          s_bar;          /* dev builds: the drive bar */
 static long          s_frames_done;
 static bool          s_running = true;
 static bool          s_have_menu;
+static SDL_AudioDeviceID s_audio_dev;
 
 /* VSync belongs to presentation. The guest retains its own deadline, and
  * fast-forward / measurement must be able to turn blocking presents off.
@@ -362,7 +364,9 @@ static void state_slot(char *out, size_t n)
     char *dot = strrchr(stem, '.');
     if (dot && dot != stem) *dot = 0;
     char dir[1100];
-    exe_path(dir, sizeof(dir), "saves");
+    char *base_path = SDL_GetBasePath();
+    if (base_path) { snprintf(dir, sizeof(dir), "%ssaves", base_path); SDL_free(base_path); }
+    else exe_path(dir, sizeof(dir), "saves");
     make_dir(dir);
     snprintf(out, n, "%s/%s.%s", dir, stem, s_fds ? "state" : "cycstate");
 }
@@ -383,8 +387,39 @@ static bool load_state_from(const char *path, char *err, size_t n)
     if (!cyc_state_load_file(path, err, n)) return false;
     s_frames_done = (long)cyc_ring_frame;
     cyc_session_state_loaded();
+#ifdef CYC_WITH_RECOMP_UI
+    cyc_state_ui_reset();
+#endif
+    if (s_audio_dev) SDL_ClearQueuedAudio(s_audio_dev);
     return true;
 }
+
+static bool states_available(void)
+{
+#ifdef NESRECOMP_NET
+    return !nes_netplay_active();
+#else
+    return true;
+#endif
+}
+
+static bool restore_state_blob(const uint8_t *data, size_t len, char *err, size_t cap)
+{
+    if (!states_available()) { snprintf(err, cap, "State loading is unavailable during online play"); return false; }
+    if (!cyc_state_load(data, len, err, cap)) return false;
+    s_frames_done = (long)cyc_ring_frame;
+    cyc_session_state_loaded();
+    if (s_audio_dev) SDL_ClearQueuedAudio(s_audio_dev);
+    return true;
+}
+
+#ifdef CYC_WITH_RECOMP_UI
+static void state_mods_changed(void)
+{
+    cyc_state_ui_reset();
+    cyc_session_mods_reapply();
+}
+#endif
 
 static bool save_state_slot(void)
 {
@@ -702,6 +737,11 @@ static void tcp_state(int id, const char *line)
         at += (size_t)snprintf(f + at, sizeof(f) - at, "%s{\"guid\":\"%s\",\"buttons\":%u}", i ? "," : "", s_pad_guid[i], held);
     }
     snprintf(f + at, sizeof(f) - at, "]");
+#ifdef CYC_WITH_RECOMP_UI
+    char history[320]; cyc_state_ui_status(history, sizeof(history));
+    size_t used = strlen(f);
+    snprintf(f + used, sizeof(f) - used, ",%s", history);
+#endif
     cyc_tcp_ok(id, f);
 }
 
@@ -1139,6 +1179,9 @@ static void show(bool loading, const char *toast_title, const char *toast_body)
 {
     int w, h;
     const uint32_t *pic = picture(&w, &h);
+#ifdef CYC_WITH_RECOMP_UI
+    cyc_state_ui_picture(pic, w, h);
+#endif
     if (!ensure_texture(w, h)) return;
 #ifndef CYC_WITH_RECOMP_UI
     /* no runtime UI: the toast goes into a copy of the picture */
@@ -1325,7 +1368,14 @@ int cyc_sdl_main(const char *title_in, int scale)
     }
 #ifdef CYC_WITH_RECOMP_UI
     CycUiHost host = { &s_set, s_extras, s_fds, apply_settings, save_settings, request_quit, frames_done, now_ms, title,
-                       save_state_slot, load_state_slot, cyc_session_mods_provider(), s_image, cyc_session_mods_reapply };
+                       save_state_slot, load_state_slot, cyc_session_mods_provider(), s_image, state_mods_changed };
+    char state_path[1200]; state_slot(state_path, sizeof(state_path));
+    host.state_path = state_path;
+    host.state_serialize = cyc_state_save;
+    host.state_restore = restore_state_blob;
+    host.states_available = states_available;
+    host.frame_seconds = cyc_host_frame_seconds();
+    cyc_state_ui_configure(s_set.rewind_enabled, s_set.rewind_depth, s_set.rewind_interval);
     s_have_menu = cyc_ui_init(s_win, s_ren, &host);
 #endif
 
@@ -1336,6 +1386,7 @@ int cyc_sdl_main(const char *title_in, int scale)
     want.channels = 1;
     want.samples = 1024;
     SDL_AudioDeviceID dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
+    s_audio_dev = dev;
     if (dev && cyc_audio_enable(have.freq)) SDL_PauseAudioDevice(dev, 0);
     else if (!dev) cyc_diagnostics_error("SDL audio: %s (continuing without sound)\n", SDL_GetError());
     cyc_diagnostics_note("audio device=%u driver=%s rate=%d game_controllers=%d", dev,
@@ -1367,6 +1418,9 @@ int cyc_sdl_main(const char *title_in, int scale)
     SDL_SetWindowTitle(s_win, title);
 
     while (s_running) {
+#ifdef CYC_WITH_RECOMP_UI
+        cyc_state_ui_configure(s_set.rewind_enabled, s_set.rewind_depth, s_set.rewind_interval);
+#endif
         vpad_tick(s_frames_done);
         cyc_tcp_poll();
         tcp_tick();
@@ -1429,7 +1483,7 @@ int cyc_sdl_main(const char *title_in, int scale)
             prev[i] = st.shortcut[i];
         }
         uint64_t now = now_ms();
-        if (edge[CYC_SC_MENU] && s_have_menu) {
+        if (edge[CYC_SC_MENU] && s_have_menu && !(open && !menu_open())) {
 #ifdef CYC_WITH_RECOMP_UI
             cyc_ui_toggle_menu();
 #endif
@@ -1442,8 +1496,13 @@ int cyc_sdl_main(const char *title_in, int scale)
             apply_settings();
             save_settings();
         }
-        if (edge[CYC_SC_SAVE_STATE] && !menu_open()) save_state_slot();
-        if (edge[CYC_SC_LOAD_STATE] && !menu_open()) load_state_slot();
+#ifdef CYC_WITH_RECOMP_UI
+        if (s_have_menu && (edge[CYC_SC_STATE_MENU] || edge[CYC_SC_REWIND])) {
+            int pw, ph; const uint32_t *pic = picture(&pw, &ph);
+            cyc_state_ui_picture(pic, pw, ph);
+            cyc_ui_open_states(edge[CYC_SC_REWIND]);
+        }
+#endif
         if (edge[CYC_SC_SCREENSHOT]) {
             char name[64];
             int pw, ph;
@@ -1452,6 +1511,7 @@ int cyc_sdl_main(const char *title_in, int scale)
             if (cyc_write_png(name, pic, pw, ph)) printf("saved %s\n", name);
         }
         open = menu_open();
+        if (open && dev) SDL_ClearQueuedAudio(dev);
         if (was_open && !open) {
             hold_input = true;
             s_zapper_release = true;
@@ -1520,6 +1580,15 @@ int cyc_sdl_main(const char *title_in, int scale)
 #endif
             frames++;
             cyc_host_frame_done(++s_frames_done);
+#ifdef CYC_WITH_RECOMP_UI
+            if (s_have_menu) {
+                if (cyc_state_ui_capture_due(s_frames_done)) {
+                    int pw, ph; const uint32_t *pic = picture(&pw, &ph);
+                    cyc_state_ui_picture(pic, pw, ph);
+                }
+                cyc_state_ui_frame(s_frames_done);
+            }
+#endif
             loading = s_fds && cyc_host_frame_unpaced();
             fast = !online&&(st.shortcut[CYC_SC_FAST_FORWARD] || loading);
         }
@@ -1608,6 +1677,7 @@ int cyc_sdl_main(const char *title_in, int scale)
     if (s_have_menu) cyc_ui_shutdown();
 #endif
     if (dev) SDL_CloseAudioDevice(dev);
+    s_audio_dev = 0;
     for (int i = 0; i < s_pad_count; ++i) SDL_GameControllerClose(s_pads[i]);
     if (s_vpad_joy) SDL_JoystickClose(s_vpad_joy);
     SDL_DestroyTexture(s_tex);

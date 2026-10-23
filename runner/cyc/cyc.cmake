@@ -17,6 +17,7 @@
 # The runtime is C11. Only the oracle and the recomp-ui glue are C++.
 
 set(NESRECOMP_CYC_DIR ${CMAKE_CURRENT_LIST_DIR})
+include("${NESRECOMP_CYC_DIR}/../recomp_net.cmake")
 include(${NESRECOMP_CYC_DIR}/ppu_implementation.cmake)
 
 set(NESRECOMP_CYC_SOURCES
@@ -168,7 +169,10 @@ function(nesrecomp_cyc_enable_recomp_ui target)
     recomp_target_launcher_ui(${target} CONSOLE nes ${boxart})
     recomp_target_runtime_ui_sdlrenderer2(${target})
     target_sources(${target} PRIVATE ${NESRECOMP_CYC_DIR}/cyc_ui_menu.c ${NESRECOMP_CYC_DIR}/cyc_ui_launcher.c
-        ${NESRECOMP_CYC_DIR}/cyc_ui_imgui.cpp)
+        ${NESRECOMP_CYC_DIR}/cyc_ui_imgui.cpp ${NESRECOMP_CYC_DIR}/cyc_state_ui.cpp)
+    _nesrecomp_add_recomp_net()
+    _nesrecomp_add_rbengine()
+    target_link_libraries(${target} PRIVATE recomp_net retcomm_rbengine)
     target_compile_definitions(${target} PRIVATE CYC_WITH_RECOMP_UI)
     if(RUI_ROM_SHA256)
         target_compile_definitions(${target} PRIVATE "CYC_LAUNCHER_ROM_SHA256=\"${RUI_ROM_SHA256}\"")

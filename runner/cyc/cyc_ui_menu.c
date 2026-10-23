@@ -6,6 +6,7 @@
  * knows nothing about disks.
  */
 #include "cyc_ui.h"
+#include "cyc_state_ui.h"
 #include "cyc_settings.h"
 
 #include "cyc_core.h"
@@ -364,6 +365,11 @@ static int run_action(void *ctx, const RecompRuntimeUiItem *it)
     const CycHostExtras *x = s_host.extras;
     long f = s_host.frames_done();
     if (is_key(it, RECOMP_RUNTIME_UI_KEY_RESUME)) { recomp_runtime_ui_close(s_ui); return 1; }
+    if (is_key(it, "cyc.states") || is_key(it, "cyc.rewind")) {
+        if (!cyc_state_ui_open(is_key(it, "cyc.rewind"))) return 0;
+        recomp_runtime_ui_close(s_ui);
+        return 1;
+    }
     if (is_key(it, "cyc.disk.eject")) {
         CycDiskToast t;
         cyc_disk_action_toast(cyc_host_disk_action(), s_host.now_ms(), &t);
@@ -412,6 +418,9 @@ static int run_action(void *ctx, const RecompRuntimeUiItem *it)
 
 static int is_enabled(void *ctx, const RecompRuntimeUiItem *it)
 {
+    if ((is_key(it, "cyc.states") || is_key(it, "cyc.rewind")) &&
+        (!s_host.state_serialize || !s_host.state_restore ||
+         (s_host.states_available && !s_host.states_available()))) return 0;
 #ifdef NESRECOMP_NET
     if(nes_netplay_active()&&(mod_row(it)||game_row(it)||axis_of(it)>=0||is_key(it,"cyc.disk.side")||is_key(it,RECOMP_RUNTIME_UI_KEY_VIEW_MODE)||is_key(it,RECOMP_RUNTIME_UI_KEY_LOAD_STATE)||is_key(it,RECOMP_RUNTIME_UI_KEY_SAVE_STATE)))return 0;
 #endif
@@ -498,6 +507,8 @@ RecompRuntimeUi *cyc_ui_menu_create(const CycUiHost *host)
     }
     add("cyc.quit", "System", "Quit", "Close the game (the disk save is written first).", RECOMP_RUNTIME_UI_ACTION,
         0, 0, 0, NULL, 0, NULL);
+    add("cyc.states", "System", "Save states", "Browse twelve save slots with thumbnails (F7).", RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, NULL, 0, NULL);
+    add("cyc.rewind", "System", "Rewind", "Choose an earlier moment and resume there (F8).", RECOMP_RUNTIME_UI_ACTION, 0, 0, 0, NULL, 0, NULL);
     refresh();
 
     RecompRuntimeUiStandardConfig std;
@@ -517,8 +528,6 @@ RecompRuntimeUi *cyc_ui_menu_create(const CycUiHost *host)
                    RECOMP_RUNTIME_UI_STANDARD_INTEGER_SCALE | RECOMP_RUNTIME_UI_STANDARD_LINEAR_FILTER |
                    RECOMP_RUNTIME_UI_STANDARD_AUDIO | RECOMP_RUNTIME_UI_STANDARD_VOLUME |
                    RECOMP_RUNTIME_UI_STANDARD_RESUME;
-    if (host->save_state && host->load_state)
-        std.features |= RECOMP_RUNTIME_UI_STANDARD_SAVE_STATE | RECOMP_RUNTIME_UI_STANDARD_LOAD_STATE;
     if (x && x->view_modes && x->set_view_mode) {
         std.features |= RECOMP_RUNTIME_UI_STANDARD_VIEW_MODE;
         std.view_modes = x->view_modes;
@@ -540,17 +549,27 @@ void cyc_ui_menu_refresh(void)
     if (s_ui) refresh();
 }
 
-bool cyc_ui_menu_open(void) { return s_ui && recomp_runtime_ui_is_open(s_ui); }
+bool cyc_ui_menu_open(void) { return (s_ui && recomp_runtime_ui_is_open(s_ui)) || cyc_state_ui_is_open(); }
 
 void cyc_ui_toggle_menu(void)
 {
     if (!s_ui) return;
+    if (cyc_state_ui_is_open()) { cyc_state_ui_close(); return; }
     if (recomp_runtime_ui_is_open(s_ui)) recomp_runtime_ui_close(s_ui);
     else recomp_runtime_ui_open(s_ui);
 }
 
+bool cyc_ui_open_states(bool rewind)
+{
+    if (!s_ui) return false;
+    if (!cyc_state_ui_open(rewind ? 1 : 0)) return false;
+    recomp_runtime_ui_close(s_ui);
+    return true;
+}
+
 void cyc_ui_nav(int input, bool repeat)
 {
+    if (cyc_state_ui_is_open()) return;
     if (s_ui) recomp_runtime_ui_handle_input(s_ui, (RecompRuntimeUiInput)input, 1, repeat ? 1 : 0);
 }
 
