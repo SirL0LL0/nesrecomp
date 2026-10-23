@@ -75,6 +75,7 @@ struct Feature {
     std::string exclusive_group;
     std::vector<std::string> exclusive_groups;
     bool default_enabled = false;
+    bool experimental = false;
     bool camera_controls = false;
     std::vector<PluginRef> plugins;
 };
@@ -603,6 +604,10 @@ bool read_manifest(const fs::path& path, Package& out, std::string* error) {
                 else if (key == "default_enabled") {
                     parsed = parse_bool(value, bool_value);
                     if (parsed) feature->default_enabled = bool_value;
+                }
+                else if (key == "experimental") {
+                    parsed = parse_bool(value, bool_value);
+                    if (parsed) feature->experimental = bool_value;
                 }
                 else if (key == "camera_controls") {
                     parsed = parse_bool(value, bool_value);
@@ -2373,6 +2378,7 @@ int provider_feature_get(void*, int index,
     out->enabled = feature_enabled(state(), package, feature) &&
         feature_resources_valid(state(), package, feature, false, nullptr);
     out->camera_controls = feature.camera_controls ? 1 : 0;
+    out->channel = feature.experimental ? RECOMP_MOD_CHANNEL_EXPERIMENTAL : RECOMP_MOD_CHANNEL_STABLE;
     out->option_count = (int)std::count_if(
         package.options.begin(), package.options.end(),
         [&](const Option& option) {
