@@ -17,9 +17,9 @@ _Static_assert(SDL_CONTROLLER_BUTTON_MAX <= 32, "button mask");
 static const char *const BUTTON_KEYS[CYC_INPUT_BUTTONS] = { "a", "b", "select", "start", "up", "down", "left", "right" };
 static const char *const BUTTON_LABELS[CYC_INPUT_BUTTONS] = { "A", "B", "Select", "Start", "Up", "Down", "Left", "Right" };
 static const char *const SHORTCUT_KEYS[CYC_SC_COUNT] = { "disk", "menu", "fast_forward", "screenshot", "fullscreen",
-                                                          "save_state", "load_state" };
+                                                          "state_menu", "rewind" };
 static const char *const SHORTCUT_LABELS[CYC_SC_COUNT] = {
-    "Disk (show / swap side)", "Menu", "Fast-forward (hold)", "Screenshot", "Fullscreen", "Save state", "Load state",
+    "Disk (show / swap side)", "Menu", "Fast-forward (hold)", "Screenshot", "Fullscreen", "Save-state menu", "Rewind",
 };
 
 const char *cyc_button_key(int b) { return b >= 0 && b < CYC_INPUT_BUTTONS ? BUTTON_KEYS[b] : ""; }
@@ -56,14 +56,14 @@ void cyc_bindings_default(CycBindings *b)
         }
     }
     /* Shortcuts avoid every default controller key and every key a dev build
-     * keeps for itself (F1-F7). The shoulders are free on an NES layout. */
+     * keeps for itself (F1-F6). F7/F8 open states and rewind. */
     b->shortcut[CYC_SC_DISK]         = (CycBinding){ SDL_SCANCODE_D, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) };
     b->shortcut[CYC_SC_MENU]         = (CycBinding){ SDL_SCANCODE_ESCAPE, CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) };
     b->shortcut[CYC_SC_FAST_FORWARD] = (CycBinding){ SDL_SCANCODE_TAB, CYC_PAD_AXIS(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1) };
     b->shortcut[CYC_SC_SCREENSHOT]   = (CycBinding){ SDL_SCANCODE_F12, 0 };
     b->shortcut[CYC_SC_FULLSCREEN]   = (CycBinding){ SDL_SCANCODE_F11, 0 };
-    b->shortcut[CYC_SC_SAVE_STATE]   = (CycBinding){ SDL_SCANCODE_F8, 0 };
-    b->shortcut[CYC_SC_LOAD_STATE]   = (CycBinding){ SDL_SCANCODE_F9, 0 };
+    b->shortcut[CYC_SC_STATE_MENU]   = (CycBinding){ SDL_SCANCODE_F7, CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_LEFTSTICK)) };
+    b->shortcut[CYC_SC_REWIND]       = (CycBinding){ SDL_SCANCODE_F8, CYC_PAD_COMBO((1u << SDL_CONTROLLER_BUTTON_BACK) | (1u << SDL_CONTROLLER_BUTTON_RIGHTSTICK)) };
 }
 
 /* ---- text forms ---- */

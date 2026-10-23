@@ -99,11 +99,13 @@ static void defaults(void)
     CHECK(b.shortcut[CYC_SC_DISK].key == SDL_SCANCODE_D);
     CHECK(b.shortcut[CYC_SC_DISK].pad == CYC_PAD_BUTTON(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
     CHECK(b.shortcut[CYC_SC_MENU].key == SDL_SCANCODE_ESCAPE);
-    /* no shortcut default collides with a controller default, a dev key (F1-F7)
+    CHECK(b.shortcut[CYC_SC_STATE_MENU].key == SDL_SCANCODE_F7);
+    CHECK(b.shortcut[CYC_SC_REWIND].key == SDL_SCANCODE_F8);
+    /* no shortcut default collides with a controller default, a dev key (F1-F6)
      * or another shortcut */
     for (int s = 0; s < CYC_SC_COUNT; ++s) {
         const CycBinding *sb = &b.shortcut[s];
-        CHECK(!(sb->key >= SDL_SCANCODE_F1 && sb->key <= SDL_SCANCODE_F7));
+        CHECK(!(sb->key >= SDL_SCANCODE_F1 && sb->key <= SDL_SCANCODE_F6));
         for (int p = 0; p < CYC_INPUT_PLAYERS; ++p)
             for (int i = 0; i < CYC_INPUT_BUTTONS; ++i) {
                 CHECK(!sb->key || sb->key != b.button[p][i].key);
@@ -309,6 +311,7 @@ static void persistence(const char *dir)
     /* change every field */
     s.window_scale = 5; s.fullscreen = 2; s.integer_scale = 0; s.linear_filter = 1;
     s.audio_enabled = 0; s.volume = 35; s.skip_launcher = 1;
+    s.rewind_enabled = 0; s.rewind_depth = 150; s.rewind_interval = 15;
     s.hdpack_enabled = 0;
     snprintf(s.hdpack_dir,sizeof s.hdpack_dir,"F:/HD Packs/Zelda");
     s.zapper_mouse = 0; s.zapper_crosshair = 0;
@@ -333,6 +336,7 @@ static void persistence(const char *dir)
     CHECK(cyc_settings_load(&back, path, stderr, NULL));
     CHECK(back.window_scale == 5 && back.fullscreen == 2 && back.integer_scale == 0 && back.linear_filter == 1);
     CHECK(back.audio_enabled == 0 && back.volume == 35 && back.skip_launcher == 1);
+    CHECK(back.rewind_enabled == 0 && back.rewind_depth == 150 && back.rewind_interval == 15);
     CHECK(!back.hdpack_enabled && !strcmp(back.hdpack_dir,s.hdpack_dir));
     CHECK(!back.zapper_mouse && !back.zapper_crosshair && back.zapper_keys == 3);
     CHECK(back.fds_hle.auto_swap == 1 && back.fds_hle.fast_load == 0);
@@ -373,7 +377,9 @@ static void persistence(const char *dir)
     fputs("[Display]\nWindowScale = lots\nFullscreen = 9\n[Unknown]\nx = y\n"
           "[Keyboard.Player1]\na = NoSuchKey\nb = rshift\n[Gamepad.Player1]\nstart = a, b\nup = paddle9\n"
           "[Keyboard.Player7]\na = Q\n[FDS]\nAutoSwap = maybe\nFastLoad = on\n"
-          "[Zapper]\nMouse = false\nCrosshair = true\n", f);
+          "[Zapper]\nMouse = false\nCrosshair = true\n"
+          "[Rewind]\nEnabled = lots\nDepth = 900\nInterval = -3\n"
+          "[Keyboard.Shortcuts]\nsave_state = F8\nload_state = F9\n", f);
     fclose(f);
     char logpath[1024];
     snprintf(logpath, sizeof(logpath), "%s/input_test_log.txt", dir);
@@ -390,6 +396,9 @@ static void persistence(const char *dir)
     CHECK(back.bind.button[0][4].pad == d.bind.button[0][4].pad);
     CHECK(back.fds_hle.auto_swap == -1 && back.fds_hle.fast_load == 1);
     CHECK(!back.zapper_mouse && back.zapper_crosshair && back.zapper_keys == 3);
+    CHECK(back.rewind_enabled == 1 && back.rewind_depth == 240 && back.rewind_interval == 1);
+    CHECK(back.bind.shortcut[CYC_SC_STATE_MENU].key == SDL_SCANCODE_F7);
+    CHECK(back.bind.shortcut[CYC_SC_REWIND].key == SDL_SCANCODE_F8);
     log = fopen(logpath, "r");
     n = fread(all, 1, sizeof(all) - 1, log);
     fclose(log);

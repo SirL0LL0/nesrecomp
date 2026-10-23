@@ -39,6 +39,7 @@ typedef struct CycSettings {
     int  audio_enabled;     /* bool */
     int  volume;            /* 0..100 */
     int  skip_launcher;     /* bool */
+    int  rewind_enabled, rewind_depth, rewind_interval; /* local desktop history */
     char netplay_player_name[64]; /* [Netplay] PlayerName */
     int  view_mode;         /* RECOMP_RUNTIME_UI_VIEW_* of a game that has view modes; 0 native */
     int  zapper_mouse, zapper_crosshair; /* [Zapper], booleans (both default on) */

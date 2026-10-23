@@ -4,6 +4,7 @@
 // texture is copied to the renderer, at the window's full resolution: the
 // picture itself (cyc_frame_argb, screenshots, hashes) never contains it.
 #include "cyc_ui.h"
+#include "cyc_state_ui.h"
 
 #include "recomp_runtime_ui.h"
 
@@ -55,6 +56,7 @@ extern "C" bool cyc_ui_init(SDL_Window *win, SDL_Renderer *ren, const CycUiHost 
         return false;
     }
     s_ren = ren;
+    cyc_state_ui_init(ren, host);
     s_ready = true;
     return true;
 }
@@ -62,6 +64,7 @@ extern "C" bool cyc_ui_init(SDL_Window *win, SDL_Renderer *ren, const CycUiHost 
 extern "C" void cyc_ui_shutdown(void)
 {
     if (s_ready) {
+        cyc_state_ui_shutdown();
         ImGui::SetCurrentContext(s_ctx);
         ImGui_ImplSDLRenderer2_Shutdown();
         ImGui_ImplSDL2_Shutdown();
@@ -77,13 +80,14 @@ extern "C" void cyc_ui_process_event(const SDL_Event *ev)
     if (!s_ready) return;
     ImGui::SetCurrentContext(s_ctx);
     ImGui_ImplSDL2_ProcessEvent(ev);
+    cyc_state_ui_event(ev);
 }
 
 extern "C" void cyc_ui_render(void)
 {
     RecompRuntimeUi *ui = cyc_ui_runtime();
     if (!s_ready || !ui) return;
-    if (!recomp_runtime_ui_is_open(ui) && !recomp_runtime_ui_toast_visible(ui)) return;
+    if (!recomp_runtime_ui_is_open(ui) && !recomp_runtime_ui_toast_visible(ui) && !cyc_state_ui_is_open()) return;
     cyc_ui_menu_refresh();
     // The picture uses a logical size; the menu uses the whole drawable, then
     // the picture's logical size and viewport come back for the next frame.
@@ -98,6 +102,7 @@ extern "C" void cyc_ui_render(void)
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
     recomp_runtime_ui_render_imgui(ui);
+    cyc_state_ui_render();
     ImGui::Render();
     ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), s_ren);
     SDL_RenderSetLogicalSize(s_ren, lw, lh);

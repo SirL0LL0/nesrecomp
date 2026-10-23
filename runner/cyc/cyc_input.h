@@ -13,7 +13,7 @@
  *   host shortcuts, read from the keyboard and from every open controller:
  *   Disk (the FDS side swap, cyc_disk_action.h; offered only for a disk
  *   program), Menu (the runtime menu), Fast-forward (held), Screenshot,
- *   Fullscreen, Save state, Load state.
+ *   Fullscreen, Save-state browser (F7), Rewind (F8).
  *
  * A keyboard binding is an SDL scancode (0: unbound). A controller binding
  * uses recomp-ui's portable encoding (recomp_launcher.h RECOMP_LAUNCHER_PAD_*),
@@ -53,8 +53,8 @@ typedef enum {
     CYC_SC_FAST_FORWARD,
     CYC_SC_SCREENSHOT,
     CYC_SC_FULLSCREEN,
-    CYC_SC_SAVE_STATE,       /* the save state slot (cyc_state.h) */
-    CYC_SC_LOAD_STATE,
+    CYC_SC_STATE_MENU,
+    CYC_SC_REWIND,
     CYC_SC_COUNT
 } CycShortcut;
 
@@ -84,7 +84,7 @@ void cyc_bindings_default(CycBindings *b);
 /* Names: settings keys ("a", "disk") and player-facing labels. */
 const char *cyc_button_key(int button);        /* "a" "b" "select" "start" "up" "down" "left" "right" */
 const char *cyc_button_label(int button);      /* "A" ... "Right" */
-const char *cyc_shortcut_key(int shortcut);    /* "disk" "menu" "fast_forward" "screenshot" "fullscreen" "save_state" "load_state" */
+const char *cyc_shortcut_key(int shortcut);    /* "disk" "menu" "fast_forward" "screenshot" "fullscreen" "state_menu" "rewind" */
 const char *cyc_shortcut_label(int shortcut);  /* "Disk (swap side)" ... */
 
 /* Text forms (config.ini): false when the text names nothing SDL knows. */

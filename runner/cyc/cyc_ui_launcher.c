@@ -63,6 +63,9 @@ static void to_launcher(const CycSettings *s, RecompLauncherCSettings *io, const
     io->enable_audio = s->audio_enabled;
     io->volume = s->volume;
     io->skip_launcher = s->skip_launcher;
+    io->rewind_enabled = s->rewind_enabled;
+    io->rewind_depth = s->rewind_depth;
+    io->rewind_interval = s->rewind_interval;
     snprintf(io->netplay_player_name,sizeof io->netplay_player_name,"%s",s->netplay_player_name);
     io->hdpack_enabled = s->hdpack_enabled;
     snprintf(io->hdpack_dir,sizeof io->hdpack_dir,"%s",s->hdpack_dir);
@@ -100,6 +103,9 @@ static void from_launcher(const RecompLauncherCSettings *io, CycSettings *s, con
     s->audio_enabled = io->enable_audio != 0;
     s->volume = io->volume < 0 ? 0 : io->volume > 100 ? 100 : io->volume;
     s->skip_launcher = io->skip_launcher != 0;
+    s->rewind_enabled = io->rewind_enabled != 0;
+    s->rewind_depth = io->rewind_depth < 4 ? 4 : io->rewind_depth > 240 ? 240 : io->rewind_depth;
+    s->rewind_interval = io->rewind_interval < 1 ? 1 : io->rewind_interval > 60 ? 60 : io->rewind_interval;
     snprintf(s->netplay_player_name,sizeof s->netplay_player_name,"%s",io->netplay_player_name);
     s->hdpack_enabled = io->hdpack_enabled != 0;
     snprintf(s->hdpack_dir,sizeof s->hdpack_dir,"%s",io->hdpack_dir);
@@ -221,6 +227,7 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     gi.hdpack_supported = 0;
 #endif
     gi.has_integer_scale = 1;
+    gi.has_rewind_depth = 1;
     /* Driver vsync at present time: the launcher draws its Graphics row for
      * it (psx is the only console that sets this today). The host builds its
      * renderer with SDL_RENDERER_PRESENTVSYNC when the setting is on. */
