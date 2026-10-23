@@ -56,6 +56,9 @@ add_executable(cyc_ppu_kernel_test tests/ppu_kernel_selftest.c tests/ppu_kernel_
 target_include_directories(cyc_ppu_kernel_test PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
 add_test(NAME cyc_ppu_kernel_test COMMAND cyc_ppu_kernel_test)
 
+add_executable(cyc_hdpack_state_test tests/hdpack_state_selftest.c)
+add_test(NAME cyc_hdpack_state_test COMMAND cyc_hdpack_state_test)
+
 # Every cartridge board source; each test that links the boards uses this list.
 set(CYC_TEST_BOARD_SOURCES hw_mapper.c hw_fds.c hw_fds_audio.c hw_fds_hle.c vendor/emu2413/emu2413.c)
 

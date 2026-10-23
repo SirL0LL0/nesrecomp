@@ -21,6 +21,14 @@
 
 #include "hw.h"
 #include "cyc_mod.h"
+
+/* Build-time LLE comparison path. Both paths execute observable PPU clocks,
+ * fetches, mapper notifications and side effects; the default removes only
+ * redundant host control work. HLE keeps its existing implementation. */
+#ifndef NESRECOMP_PPU_LLE_REFERENCE
+#define NESRECOMP_PPU_LLE_REFERENCE 0
+#endif
+
 #include "cyc_render.h"
 #if NESRECOMP_PPU_HLE
 #include "ppu_hle_kernel.h"
@@ -598,6 +606,7 @@ static void shift_sprites(void)
     (void)shifted;
 #endif
 #else
+#if defined(NESRECOMP_CYCLE_HDPACK) || NESRECOMP_PPU_LLE_REFERENCE
     for (int i = 0; i < 8; i++) {
         if (ppu.spr_x[i] > 0 && !ppu.skipped_dot) {
             ppu.spr_x[i]--;
@@ -609,6 +618,18 @@ static void shift_sprites(void)
             ppu.spr_hi[i] <<= 1;
         }
     }
+#else
+    const uint64_t low = UINT64_C(0x7f7f7f7f7f7f7f7f);
+    const uint64_t high = UINT64_C(0x8080808080808080);
+    uint64_t x, lo, hi;
+    memcpy(&x, ppu.spr_x, 8); memcpy(&lo, ppu.spr_lo, 8); memcpy(&hi, ppu.spr_hi, 8);
+    uint64_t nonzero = (((x & low) + low) | x) & high;
+    uint64_t shift = !rendering() ? 0 : ppu.skipped_dot ? UINT64_MAX : ~((nonzero >> 7) * 255);
+    if (!ppu.skipped_dot) x -= nonzero >> 7;
+    lo = (lo & ~shift) | (((lo << 1) & UINT64_C(0xfefefefefefefefe)) & shift);
+    hi = (hi & ~shift) | (((hi << 1) & UINT64_C(0xfefefefefefefefe)) & shift);
+    memcpy(ppu.spr_x, &x, 8); memcpy(ppu.spr_lo, &lo, 8); memcpy(ppu.spr_hi, &hi, 8);
+#endif
 #endif
 }
 
@@ -858,7 +879,7 @@ static void data_sm_dot(bool blnk)
     ppu.pal_enable = (ppu.vbus & 0x3F00) == 0x3F00 && blnk;
     if (sm_rest) {
         ppu.rd = !blnk && h0;
-        hw_cart_ppu_rd(ppu.rd != 0);
+        if (NESRECOMP_PPU_HLE || NESRECOMP_PPU_LLE_REFERENCE || hw_cart.mapper == 5 || hw_cart.m.pattern_pending) hw_cart_ppu_rd(ppu.rd != 0);
         ppu.ale = !blnk && !h0;
         return;
     }
@@ -868,7 +889,7 @@ static void data_sm_dot(bool blnk)
     ppu.pd_rb = ppu.rl[4] && !ppu.rl[2];
     ppu.rd_ale = !ppu.rl[4] && ppu.rl[2];
     ppu.rd = ppu.pd_rb || (!blnk && h0);
-    hw_cart_ppu_rd(ppu.rd != 0);
+    if (NESRECOMP_PPU_HLE || NESRECOMP_PPU_LLE_REFERENCE || hw_cart.mapper == 5 || hw_cart.m.pattern_pending) hw_cart_ppu_rd(ppu.rd != 0);
     ppu.wl[0] = ppu.wr_sr;
     ppu.wl[2] = !ppu.wl[1];
     ppu.wl[4] = !ppu.wl[3];
@@ -1012,7 +1033,7 @@ static void blank_dot(void)
     ppu.blnk_latch = 1;
     ppu.pal_enable = (ppu.vbus & 0x3F00) == 0x3F00;
     ppu.rd = 0;
-    hw_cart_ppu_rd(false);
+    if (NESRECOMP_PPU_HLE || NESRECOMP_PPU_LLE_REFERENCE || hw_cart.mapper == 5 || hw_cart.m.pattern_pending) hw_cart_ppu_rd(false);
     ppu.ale = 0;
 
     ppu.oam_latch = ppu.oam_buffer;
@@ -1225,12 +1246,12 @@ static void general_half_dot(void)
     data_sm_half();
 }
 
-#if NESRECOMP_PPU_HLE
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
 /* A native rendering span owns the stable interior of a visible scanline.
  * Register access invalidates dot_kind, so no delayed CPU write/read or data
  * port transaction is hidden by this classification. Edge dots retain the
  * existing adapter (scroll copies, odd skip, VBlank and sprite loading).
- * This is selected once as latches settle, not guarded afresh for each pixel. */
+ * HLE caches this classification; LLE rechecks it at each dot/half-dot. */
 static bool render_span_ready(void)
 {
     return ppu.scanline < 240 && ppu.dot >= 8 && ppu.dot < 253 &&
@@ -1252,7 +1273,7 @@ static void render_span_dot(void)
     ppu.blnk_latch = 0;
     ppu.pal_enable = 0;
     ppu.rd = ((ppu.dot - 1) & 1) != 0;
-    hw_cart_ppu_rd(ppu.rd != 0);
+    if (NESRECOMP_PPU_HLE || NESRECOMP_PPU_LLE_REFERENCE || hw_cart.mapper == 5 || hw_cart.m.pattern_pending) hw_cart_ppu_rd(ppu.rd != 0);
     ppu.ale = !ppu.rd;
     ppu.oam_latch = ppu.oam_buffer;
     ppu.copy_v = 0;
@@ -1279,8 +1300,15 @@ static void render_span_dot(void)
 
 static void render_span_half_dot(void)
 {
+#if NESRECOMP_PPU_HLE
     ppu.bg_pixels = (ppu.bg_pixels << 2) | 2u;
     ppu.attr_pixels = (ppu.attr_pixels << 2) | ppu.attr_latch;
+#else
+    ppu.bg_lo = (uint16_t)(ppu.bg_lo << 1);
+    ppu.bg_hi = (uint16_t)(ppu.bg_hi << 1 | 1);
+    ppu.attr_lo = (uint16_t)(ppu.attr_lo << 1 | (ppu.attr_latch & 1));
+    ppu.attr_hi = (uint16_t)(ppu.attr_hi << 1 | ((ppu.attr_latch >> 1) & 1));
+#endif
 #ifdef NESRECOMP_CYCLE_HDPACK
     cyc_hdpack_bg_shift();
 #endif
@@ -1318,6 +1346,13 @@ static void render_span_half_dot(void)
  * branch (hw_cart_ppu_addr). */
 void ppu_dot(void)
 {
+#if !NESRECOMP_PPU_HLE && !NESRECOMP_PPU_LLE_REFERENCE
+    if (dot_kind == DOT_GENERAL && render_span_ready()) {
+        render_span_dot();
+        hw_cart_ppu_addr(ppu.vbus);
+        return;
+    }
+#endif
     /* The refresh begins independently of $2001 and must invalidate a
      * blank-dot classification cached earlier in VBlank. */
     if (hw_pal() && ppu.scanline >= 264) dot_kind = DOT_UNKNOWN;
@@ -1340,6 +1375,12 @@ void ppu_dot(void)
 
 void ppu_half_dot(void)
 {
+#if !NESRECOMP_PPU_HLE && !NESRECOMP_PPU_LLE_REFERENCE
+    if (dot_kind == DOT_GENERAL && render_span_ready()) {
+        render_span_half_dot();
+        return;
+    }
+#endif
     if (dot_kind == DOT_UNKNOWN) dot_kind = is_blank() ? DOT_BLANK : DOT_GENERAL;
     if (dot_kind == DOT_BLANK) {
         blank_half_dot();
