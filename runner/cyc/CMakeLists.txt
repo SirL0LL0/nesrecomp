@@ -88,6 +88,15 @@ add_test(NAME cyc_backend_default COMMAND "${Python3_EXECUTABLE}"
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../external/SDL2/cmake")
 find_package(SDL2 CONFIG QUIET)
 if(SDL2_FOUND)
+    add_executable(cyc_rb_digest_test tests/rb_digest_selftest.c tests/rb_digest_stubs.c cyc_rb_state.c)
+    target_include_directories(cyc_rb_digest_test PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
+    target_link_libraries(cyc_rb_digest_test PRIVATE SDL2::SDL2)
+    if(WIN32)
+        add_custom_command(TARGET cyc_rb_digest_test POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:cyc_rb_digest_test>)
+    endif()
+    add_test(NAME cyc_rb_digest_test COMMAND cyc_rb_digest_test)
     include("${CMAKE_CURRENT_SOURCE_DIR}/hdpack.cmake")
     add_executable(cyc_hdpack_probe ${NESRECOMP_CYC_SOURCES} cyc_native_none.c hdpack_probe.c cyc_presentation.c)
     target_include_directories(cyc_hdpack_probe PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})

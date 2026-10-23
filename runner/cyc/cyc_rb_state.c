@@ -25,6 +25,17 @@ static uint32_t hash(const uint8_t *p,size_t n,uint32_t h) {
     for(size_t i=0;i<n;++i)h=(h^p[i])*16777619u;
     return h;
 }
+/* The master and partition retain their independent FNV chains. Reading a
+ * chunk once also lets portable compilers schedule the two chains together. */
+static void hash_pair(const uint8_t *p,size_t n,uint32_t *master,uint32_t *part) {
+    uint32_t a=*master,b=*part;
+    for(size_t i=0;i<n;++i) {
+        uint8_t v=p[i];
+        a=(a^v)*16777619u;
+        b=(b^v)*16777619u;
+    }
+    *master=a;*part=b;
+}
 const char *nes_rb_part_name(int i) {
     static const char *names[]={"cpu_wram","ppu","apu_io_mods"};
     return i>=0&&i<3?names[i]:"unknown";
@@ -33,18 +44,21 @@ void nes_rb_digest_image(const uint8_t *img,size_t len,NesRbDigest *out) {
     Uint64 begin=SDL_GetPerformanceCounter();
     memset(out,0,sizeof *out);
     if(!img||len<32+TRAILER)return;
-    out->master=hash(img,len,2166136261u);
+    out->master=2166136261u;
     for(int i=0;i<3;++i)out->part[i]=2166136261u;
-    out->part[0]=hash(img,32,out->part[0]);
+    hash_pair(img,32,&out->master,&out->part[0]);
     size_t at=32, end=len-TRAILER;
     while(end-at>=8) {
         uint32_t n;memcpy(&n,img+at+4,4);
         if(n>end-at-8)break;
         int part=!memcmp(img+at,"PPU ",4)||!memcmp(img+at,"PIC",3)||!memcmp(img+at,"CHRR",4)?1:
                  !memcmp(img+at,"CPU ",4)||!memcmp(img+at,"HW  ",4)||!memcmp(img+at,"CART",4)||!memcmp(img+at,"TIME",4)||!memcmp(img+at,"REGN",4)?0:2;
-        out->part[part]=hash(img+at,8+n,out->part[part]);at+=8+n;
+        hash_pair(img+at,8+n,&out->master,&out->part[part]);at+=8+n;
     }
-    out->part[2]=hash(img+end,TRAILER,out->part[2]);
+    /* Malformed or trailing bytes were always in the master alone. This is
+     * a digest API, not the state loader: preserve that arbitrary-image rule. */
+    out->master=hash(img+at,end-at,out->master);
+    hash_pair(img+end,TRAILER,&out->master,&out->part[2]);
     measured(2,begin);
 }
 void nes_rb_state_invalidate(void){s_valid=0;}

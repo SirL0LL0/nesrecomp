@@ -1,5 +1,11 @@
 # Performance work
 
+Current cycle-backend evidence is recorded in
+[the October 22 investigation](validation/2026-10-22-cycle-performance.md).
+`tools/cyc/bench_host_work.py` measures existing cycle executables with serial
+A/A and ABBA process-CPU controls. The `--benchmark` flags and historical
+results below describe the legacy function/frame runner.
+
 This document is the burn-down and evidence contract for portable runner
 performance work. The immediate target is the original Xbox port, but retained
 changes must also improve normal desktop production builds without weakening
