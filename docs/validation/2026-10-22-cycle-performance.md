@@ -262,3 +262,20 @@ launched automatically. One combined human playtest per title remains.
 
 No source merge, remote source push, title submodule pin update or final
 integration has been performed. Owner approval is the final integration gate.
+
+### Owner playtest follow-up
+
+SMB3 passed the owner playtest. SMB1 failed with repeated widescreen terrain
+and split hills/clouds. The same fault is visible in the reference captures:
+the earlier equivalence gates preserved a pre-existing title-renderer bug.
+This is tracked as `beads-2dw.2.15`, without reopening the performance matrix.
+
+The SMB1 cycle bridge lost the rendered scroll's nametable page by combining
+its low eight bits with PPUCTRL's base page. At the failing phase it placed
+the world at camera 227 instead of 483. Title branch
+`fix/cycle-widescreen-scroll-page-20261022`, commit `640c755`, takes that bit
+from the captured 9-bit scroll. The corrected image joins continuously;
+the seam check improves from 1,145/6,656 mismatches to zero. A 200-frame
+replay preserves the entire guest/mod state, native pixels, hardware traces
+and PCM exactly. Current-build restore, repeated rendering and Fit resize
+554→426→554 pass. Only the corrected SMB1 handoff needs human recheck.
