@@ -1537,6 +1537,30 @@ static void emit_umbrella(const Program *p, const char *path, const char *prefix
     }
     fprintf(f, "};\n\n");
 
+    /* Physical byte dependencies, including operands, across ALL compiled
+     * mappings. Trusted data overlays may never change one of these bytes. */
+    size_t dependency_size = ((size_t)p->prg_len + 7u) / 8u;
+    uint8_t *dependency = (uint8_t *)calloc(dependency_size, 1);
+    if (!dependency) { fprintf(stderr, "[cyc] out of memory emitting PRG dependencies\n"); exit(1); }
+    for (uint32_t bank = 0; bank < p->banks; bank++)
+        for (uint32_t slot = 0; slot < SLOT_COUNT; slot++)
+            for (uint32_t k = 0; k < SLOT_SIZE; k++) {
+                if (!p->is_insn[POS_PACK(bank, slot, k)]) continue;
+                unsigned length = op_length(prg_byte(p, bank, k));
+                for (unsigned j = 0; j < length; j++) {
+                    uint32_t offset = bank * SLOT_SIZE + k + j;
+                    if (offset < p->prg_len) dependency[offset >> 3] |= (uint8_t)(1u << (offset & 7));
+                }
+            }
+    fprintf(f, "static const uint8_t PRG_CODE_BYTES[%zu] = {", dependency_size);
+    for (size_t i = 0; i < dependency_size; i++) {
+        if (!(i % 32)) fputc('\n', f);
+        fprintf(f, "0x%02X,", dependency[i]);
+    }
+    free(dependency);
+    fprintf(f, "\n};\nbool cyc_native_prg_code_byte(uint32_t offset) {\n"
+               "    return offset < %uu && ((PRG_CODE_BYTES[offset >> 3] >> (offset & 7)) & 1);\n}\n\n", p->prg_len);
+
     uint32_t prg_hash = 2166136261u;
     fprintf(f, "const uint32_t cyc_native_cart_hash = 0x%08Xu;\n", nes_cart_identity(&p->rom->cart));
     fprintf(f, "const uint32_t cyc_native_fds_bios_crc32 = 0x%08Xu;\n", fds ? fds->bios_crc32 : 0u);

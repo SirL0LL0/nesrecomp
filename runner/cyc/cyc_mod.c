@@ -8,6 +8,7 @@
 #include "cyc_run.h"
 #include "cyc_state.h"
 #include "cyc_render.h"
+#include "cyc_recomp.h"
 #include "../include/mod_savestate.h"
 #include "cyc_trace.h"
 #include "hw_internal.h"
@@ -38,12 +39,31 @@ bool cyc_mod_set_rom_read_override(uint16_t addr, uint8_t value)
 {
     if (addr < 0x8000) return false;
     for (unsigned i = 0; i < read_override_count; i++) {
-        if (read_overrides[i].addr == addr) { read_overrides[i].value = value; return true; }
+        if (!read_overrides[i].qualified && read_overrides[i].addr == addr) { read_overrides[i].value = value; return true; }
     }
     if (read_override_count >= CYC_MOD_READ_OVERRIDES_MAX) return false;
     read_overrides[read_override_count].addr = addr;
     read_overrides[read_override_count].value = value;
+    read_overrides[read_override_count].qualified = 0;
     read_override_count++;
+    cyc_mod_rom_read_overrides = read_overrides;
+    return true;
+}
+
+bool cyc_mod_set_prg_read_override(uint32_t offset, uint8_t compare, uint8_t value)
+{
+    /* Windowed launchers activate trusted policy before loading the image.
+     * Queue it then; every read still qualifies against the mapped ROM byte. */
+    if (hw_cart.prg && (offset >= hw_cart.prg_len || hw_cart.prg[offset] != compare)) return false;
+    for (unsigned i = 0; i < read_override_count; i++) {
+        if (read_overrides[i].qualified && read_overrides[i].prg_offset == offset) {
+            read_overrides[i].compare = compare; read_overrides[i].value = value; return true;
+        }
+    }
+    if (read_override_count >= CYC_MOD_READ_OVERRIDES_MAX) return false;
+    CycModReadOverride *entry = &read_overrides[read_override_count++];
+    memset(entry, 0, sizeof *entry);
+    entry->qualified = 1; entry->prg_offset = offset; entry->compare = compare; entry->value = value;
     cyc_mod_rom_read_overrides = read_overrides;
     return true;
 }
@@ -156,6 +176,35 @@ bool cyc_mod_apply_cart_payload(const uint8_t *payload, size_t size) {
         ppu_state_reloaded();
     }
     return true;
+}
+bool cyc_mod_apply_cart_data_payload(const uint8_t *payload, size_t size) {
+    size_t chr_rom = hw_cart.info.chr_size;
+    if (s_open || hw_cart.mapper == NES_FDS_MAPPER || !payload || !hw_cart.prg ||
+        size != (size_t)hw_cart.prg_len + chr_rom || (chr_rom && !hw_cart.chr)) return false;
+    bool changed = false;
+    for (uint32_t i = 0; i < hw_cart.prg_len; i++) {
+        if (hw_cart.prg[i] == payload[i]) continue;
+        if (cyc_native_prg_code_byte(i)) return false;
+        changed = true;
+    }
+    if (changed) {
+        memcpy(hw_cart.prg, payload, hw_cart.prg_len);
+        hw_prg_data_modified = true;
+    }
+    if (chr_rom) {
+        memcpy(hw_cart.chr, payload + hw_cart.prg_len, chr_rom);
+        ppu_state_reloaded();
+    }
+    return true;
+}
+size_t cyc_mod_copy_cart_payload(uint8_t *out, size_t capacity) {
+    if (hw_cart.mapper == NES_FDS_MAPPER || !hw_cart.prg) return 0;
+    size_t size = (size_t)hw_cart.prg_len + hw_cart.info.chr_size;
+    if (out && capacity >= size) {
+        memcpy(out, hw_cart.prg, hw_cart.prg_len);
+        if (hw_cart.info.chr_size) memcpy(out + hw_cart.prg_len, hw_cart.chr, hw_cart.info.chr_size);
+    }
+    return size;
 }
 bool cyc_mod_chr_poke(uint16_t addr, uint8_t value) {
     if (s_open || addr >= 0x2000 || !hw_cart.chr_write[addr >> 10]) return false;

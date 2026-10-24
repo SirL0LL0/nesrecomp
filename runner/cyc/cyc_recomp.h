@@ -39,6 +39,8 @@ extern const char    *cyc_native_fds_hle;
  * (0 = the board's default, 1 = nes, 2 = famicom); --console overrides it. */
 extern const uint8_t  cyc_native_console;
 bool cyc_native_has(uint16_t addr);
+/* Union of opcode and operand bytes over every compiled ROM bank/slot view. */
+bool cyc_native_prg_code_byte(uint32_t offset);
 void cyc_native_run(void);
 
 /* One compiled view of code in RAM: instructions compiled from one known

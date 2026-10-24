@@ -25,3 +25,7 @@ bool cyc_native_has(uint16_t addr) {
 
 void cyc_native_run(void) {
 }
+bool cyc_native_prg_code_byte(uint32_t offset) {
+    (void)offset;
+    return false;
+}

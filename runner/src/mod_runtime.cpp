@@ -200,6 +200,7 @@ struct Runtime {
     NESModHdPack committed_hd{};
     std::string committed_hd_key;
     bool hd_locked = false;
+    std::set<std::pair<std::string, std::string>> locked_features;
     std::map<std::string, ResourceCache> resource_cache;
     std::string error;
     bool initialized = false;
@@ -2447,7 +2448,7 @@ int provider_feature_enable(void*, const char* package_id,
                             const char* feature_id, int enabled) {
     if (!package_id || !feature_id) return 0;
     if (nes_mod_feature_requires_restart(package_id, feature_id)) {
-        state().error = "Change the HD pack or its display mode in the launcher, then restart the game.";
+        state().error = "Change this mod in the launcher, then restart the game.";
         return 0;
     }
     const Package* package = selected_package(state(), package_id);
@@ -2467,6 +2468,17 @@ int provider_feature_enable(void*, const char* package_id,
     if (enabled) {
         std::set<std::string> groups(feature->exclusive_groups.begin(),feature->exclusive_groups.end());
         if(!feature->exclusive_group.empty()) groups.insert(feature->exclusive_group);
+        /* Preflight before changing ANY selection: an unlocked feature must
+         * not indirectly disable a locked boot-time feature via exclusions. */
+        for (const FeatureRef& other : selected_features(state())) {
+            if (other.package->id == package->id && other.feature->id == feature->id) continue;
+            bool overlap = groups.count(other.feature->exclusive_group) != 0;
+            for (const auto& group : other.feature->exclusive_groups) overlap |= groups.count(group) != 0;
+            if (overlap && nes_mod_feature_requires_restart(other.package->id.c_str(), other.feature->id.c_str())) {
+                state().error = "Change this mod in the launcher, then restart the game.";
+                return 0;
+            }
+        }
         for (const FeatureRef& other : selected_features(state())) {
             if (other.package->id == package->id &&
                 other.feature->id == feature->id)
@@ -2578,6 +2590,10 @@ int provider_feature_set_option(
     void*, const char* package_id, const char* feature_id,
     const char* option_id, const char* value) {
     if (!package_id || !feature_id || !option_id || !value) return 0;
+    if (nes_mod_feature_requires_restart(package_id, feature_id)) {
+        state().error = "Change this mod in the launcher, then restart the game.";
+        return 0;
+    }
     const Package* package = selected_package(state(), package_id);
     if (!package) return 0;
     const Feature* feature = find_feature(*package, feature_id);
@@ -2802,10 +2818,17 @@ extern "C" const NESModHdPack* nes_mod_hd_pack(void) {
 
 extern "C" void nes_mod_lock_hd_pack(void) { NESRecomp::state().hd_locked = true; }
 
+extern "C" void nes_mod_lock_feature(const char* package_id, const char* feature_id) {
+    if (package_id && feature_id)
+        NESRecomp::state().locked_features.emplace(package_id, feature_id);
+}
+
 extern "C" int nes_mod_feature_requires_restart(const char* package_id, const char* feature_id) {
     using namespace NESRecomp;
     Runtime& runtime = state();
-    if (!runtime.hd_locked || !package_id || !feature_id) return 0;
+    if (!package_id || !feature_id) return 0;
+    if (runtime.locked_features.count({package_id, feature_id})) return 1;
+    if (!runtime.hd_locked) return 0;
     const Package* package = selected_package(runtime, package_id);
     const Feature* feature = package ? find_feature(*package, feature_id) : nullptr;
     if (!feature) return 0;

@@ -79,6 +79,7 @@ bool hw_prg_is_stable(void);
 bool hw_prg_is_rom(uint16_t addr);
 /* Trusted content tools edited PRG; generated ROM constants are invalid. */
 extern bool hw_prg_modified;
+extern bool hw_prg_data_modified;
 
 #ifdef __cplusplus
 }

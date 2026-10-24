@@ -340,6 +340,12 @@ add_test(NAME cyc_rom_read_override
         ${NESRECOMP_NESTED_BUILD_ARGS})
 set_tests_properties(cyc_rom_read_override PROPERTIES TIMEOUT 300)
 
+add_test(NAME cyc_data_mods
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/cyc/test_cyc_data_mods.py
+        --recompiler $<TARGET_FILE:NESRecomp> --out ${CMAKE_CURRENT_BINARY_DIR}/data-mods
+        ${NESRECOMP_NESTED_BUILD_ARGS})
+set_tests_properties(cyc_data_mods PROPERTIES TIMEOUT 300)
+
 add_test(NAME cyc_ramview_test
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/cyc/test_cyc_ramviews.py
             --recompiler $<TARGET_FILE:NESRecomp> --interp $<TARGET_FILE:cyc_interp>

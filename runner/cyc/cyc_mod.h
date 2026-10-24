@@ -79,12 +79,19 @@ bool    cyc_mod_poke(uint16_t addr, uint8_t value);
 typedef struct {
     uint16_t addr;   /* $8000-$FFFF */
     uint8_t  value;
+    uint8_t  compare, qualified;
+    uint32_t prg_offset;
 } CycModReadOverride;
 extern const CycModReadOverride *cyc_mod_rom_read_overrides;
 unsigned cyc_mod_rom_read_override_count(void);
 /* Adds or replaces the override for addr. False when addr is not ROM, or the
  * table is full (count tells you how full; CYC_MOD_READ_OVERRIDES_MAX). */
 bool cyc_mod_set_rom_read_override(uint16_t addr, uint8_t value);
+/* Match the mapped physical PRG offset AND original value. Bank switching
+ * cannot accidentally apply the cheat to another bank at the same address.
+ * May be registered before loading a ROM (launcher activation); when a ROM is
+ * already loaded, an out-of-range or mismatching request is refused. */
+bool cyc_mod_set_prg_read_override(uint32_t offset, uint8_t compare, uint8_t value);
 void cyc_mod_clear_rom_read_overrides(void);
 
 /* Optional trusted content tools. Obtaining writable PRG disables generated
@@ -96,6 +103,13 @@ uint8_t *cyc_mod_prg_data_rw(size_t *size);
  * package verification. CHR RAM is retained; changed PRG disables native code.
  * Refused for FDS, incomplete payloads and isolated calls. */
 bool cyc_mod_apply_cart_payload(const uint8_t *payload, size_t size);
+/* Data-only variant: transactionally refuses any changed PRG opcode or operand
+ * used by ANY generated view. Accepted changes retain native dispatch; folded
+ * ROM reads then fetch the mapped image. Does not undo prior writable-PRG use. */
+bool cyc_mod_apply_cart_data_payload(const uint8_t *payload, size_t size);
+/* Copy the loaded physical PRG + CHR-ROM without changing dispatch policy.
+ * Returns the required size; copies only when capacity is sufficient. */
+size_t cyc_mod_copy_cart_payload(uint8_t *out, size_t capacity);
 /* Mapped CHR RAM only; for a finished tile transfer, outside isolated calls. */
 bool cyc_mod_chr_poke(uint16_t ppu_addr, uint8_t value);
 /* CPU writes to $2006 (completed address) and $2007 (address/value before the
