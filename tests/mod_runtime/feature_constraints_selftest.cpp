@@ -17,6 +17,7 @@ static void package(const fs::path& root,const char *id,const char *groups) {
          "[[target]]\ngame_id=\"test-game\"\nrom_crc32=\"00000000\"\n"
          "[[feature]]\nid=\"mode\"\nname=\"Test\"\ndefault_enabled=false\n" << groups <<
          "\n[[plugin]]\nfeature=\"mode\"\nid=\"" << id << "\"\n";
+    f << "[[option]]\nfeature=\"mode\"\nid=\"amount\"\nlabel=\"Amount\"\ntype=\"integer\"\ndefault=1\nmin=1\nmax=2\n";
 }
 int main() {
     const fs::path root=fs::absolute("feature-constraint-fixtures");
@@ -53,6 +54,21 @@ int main() {
         NESRecomp::mod_runtime_activate_plugins();
         check(active[0]==1 && active[1]==1 && active[2]==1,"singular group behavior changed");
         check(nes_mod_local_only_reason()==nullptr,"disabled co-op still blocks online launch");
+        nes_mod_lock_feature("test.player","mode");
+        check(!p->feature_enable(p->ctx,"test.coop","mode",1),"exclusion bypassed active feature lock");
+        check(nes_mod_feature_selected("test.wide","mode"),"failed exclusion partially changed selections");
+        check(nes_mod_feature_selected("test.player","mode"),"exclusion disabled locked feature");
+        nes_mod_lock_feature("test.coop","mode");
+        check(nes_mod_feature_requires_restart("test.player","mode"),"active feature lock lost");
+        check(nes_mod_feature_requires_restart("test.coop","mode"),"inactive feature lock lost");
+        check(!p->feature_enable(p->ctx,"test.player","mode",0),"locked active feature toggled");
+        check(!p->feature_enable(p->ctx,"test.coop","mode",1),"locked inactive feature toggled");
+        check(!p->feature_set_option(p->ctx,"test.player","mode","amount","2"),"locked option changed");
+        check(nes_mod_feature_selected("test.player","mode"),"failed toggle changed selection");
+        check(!nes_mod_feature_selected("test.coop","mode"),"failed enable changed selection");
+        check(p->feature_set_option(p->ctx,"test.wide","mode","amount","2"),"unlocked option refused");
+        check(NESRecomp::mod_runtime_initialize(root,"test-game","00000000",&error),error.c_str());
+        check(!nes_mod_feature_requires_restart("test.player","mode"),"feature lock leaked into next launch");
         package(root,"test.invalid","experimental=\"true\"");
         check(!NESRecomp::mod_runtime_initialize(root,"test-game","00000000",&error),"non-boolean experimental flag accepted");
         package(root,"test.invalid","exclusive_groups=[\"bad group\"]");

@@ -112,7 +112,7 @@ static void add_mod_rows(void)
         snprintf(m->desc, sizeof(m->desc), "%s", feat.description);
 #if NESRECOMP_ENABLE_MODS
         if (nes_mod_feature_requires_restart(feat.package_id, feat.id))
-            snprintf(m->desc, sizeof(m->desc), "Change this display mode in the launcher, then restart the game.");
+            snprintf(m->desc, sizeof(m->desc), "Change this mod in the launcher, then restart the game.");
 #endif
         m->type = -1;
         add(m->key, "Mods", m->label, m->desc, RECOMP_RUNTIME_UI_BOOL, 0, 1, 1, NULL, 0, NULL);

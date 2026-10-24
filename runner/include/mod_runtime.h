@@ -143,6 +143,9 @@ typedef struct NESModHdPack {
 const NESModHdPack *nes_mod_hd_pack(void);
 /* A running cartridge keeps its pack/patch until the next launch. */
 void nes_mod_lock_hd_pack(void);
+/* Trusted content plugins lock boot-time selections after loading their data.
+ * The launcher remains editable next run; in-game controls are read-only. */
+void nes_mod_lock_feature(const char *package_id, const char *feature_id);
 int nes_mod_feature_requires_restart(const char *package_id, const char *feature_id);
 
 #if defined(_MSC_VER)
