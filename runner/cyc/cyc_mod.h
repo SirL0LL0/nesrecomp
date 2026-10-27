@@ -112,6 +112,11 @@ bool cyc_mod_apply_cart_data_payload(const uint8_t *payload, size_t size);
 size_t cyc_mod_copy_cart_payload(uint8_t *out, size_t capacity);
 /* Mapped CHR RAM only; for a finished tile transfer, outside isolated calls. */
 bool cyc_mod_chr_poke(uint16_t ppu_addr, uint8_t value);
+/* Trusted physical CIRAM upload, for a native room handoff completed outside
+ * guest time. Offset is into cyc_ppu_ciram(), NOT a mirrored PPU address.
+ * Caller owns mirroring/nametable layout. Refused in isolation, on NULL input
+ * or outside physical CIRAM. Atomic validation; no clock or register effects. */
+bool cyc_mod_ciram_upload(size_t offset, const uint8_t *bytes, size_t size);
 /* CPU writes to $2006 (completed address) and $2007 (address/value before the
  * write). Optional content-tool callback; suppressed during isolated calls.
  * The hook is host policy and is not serialized as machine state. */

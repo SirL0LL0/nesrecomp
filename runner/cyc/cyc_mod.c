@@ -212,6 +212,16 @@ bool cyc_mod_chr_poke(uint16_t addr, uint8_t value) {
     ppu_state_reloaded();
     return true;
 }
+bool cyc_mod_ciram_upload(size_t offset, const uint8_t *bytes, size_t size) {
+    size_t len=0;
+    (void)cyc_ppu_ciram(&len);
+    if(s_open || !bytes || offset>len || size>len-offset) return false;
+    if(size) {
+        memmove(ppu.ciram+offset,bytes,size);
+        ppu_state_reloaded();
+    }
+    return true;
+}
 
 bool cyc_mod_poke(uint16_t addr, uint8_t value)
 {
