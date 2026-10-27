@@ -1,0 +1,214 @@
+{
+  "baseline_engine": "b795ada2127fa3a4ad212f5d8dd494db3339032d",
+  "candidate_engine_code": "67691b9d6bc6f72a82184278688ffbe4917dd6c1",
+  "host": "SERVER, Windows x64",
+  "settings": "SDL software renderer1280x720; audio emulated/mixed/queued through dummy output. Five alternating1200-frame pairs plus excluded warmups/full3600-frame correctness and independent pre/post A/A controls. TCP setup excluded; normal shutdown included.",
+  "scope": "Stock-mode representative gameplay only. No proven SMB3 gain. Gumshoe alone includes2635 extraROMseeds. Existing SMB1/3 HLE retained in baseline. No per-component attribution. Raw source/binary/host/harness identities and captures retained in campaign ledger.",
+  "games": [
+    {
+      "game": "Metroid",
+      "profile": "stock graphics",
+      "classification": "positive for this tested workload",
+      "baseline_ppu": "LLE",
+      "candidate_ppu": "HLE",
+      "package": "native-services-v3+new-packed-HLE+MMC1-stability; actual production baseline; SDL gameplay interval",
+      "frames": 1200,
+      "first_frame": 1801,
+      "end_frame": 3001,
+      "before_cpu_seconds": [
+        12.421875,
+        12.109375,
+        12.390625,
+        12.25,
+        12.328125
+      ],
+      "after_cpu_seconds": [
+        10.609375,
+        10.609375,
+        10.609375,
+        10.59375,
+        10.609375
+      ],
+      "paired_reductions_percent": [
+        14.59119496855346,
+        12.387096774193548,
+        14.37578814627995,
+        13.520408163265307,
+        13.94169835234474
+      ],
+      "median_cpu_reduction_percent": 13.94169835234474,
+      "aa_before": [
+        -0.6459948320413437,
+        0.25673940949935814
+      ],
+      "aa_after": [
+        0.2574002574002574,
+        0.5141388174807198
+      ]
+    },
+    {
+      "game": "The Legend of Zelda",
+      "profile": "stock graphics",
+      "classification": "positive for this tested workload",
+      "baseline_ppu": "LLE",
+      "candidate_ppu": "HLE",
+      "package": "native-services-v3+new-packed-HLE+MMC1-stability; actual production baseline; SDL gameplay interval",
+      "frames": 1200,
+      "first_frame": 1801,
+      "end_frame": 3001,
+      "before_cpu_seconds": [
+        13.9375,
+        13.859375,
+        13.890625,
+        13.984375,
+        13.8125
+      ],
+      "after_cpu_seconds": [
+        12.5,
+        12.265625,
+        12.328125,
+        12.25,
+        12.265625
+      ],
+      "paired_reductions_percent": [
+        10.31390134529148,
+        11.499436302142051,
+        11.24859392575928,
+        12.402234636871508,
+        11.199095022624434
+      ],
+      "median_cpu_reduction_percent": 11.24859392575928,
+      "aa_before": [
+        1.1135857461024499,
+        0.5617977528089888
+      ],
+      "aa_after": [
+        -0.3382187147688839,
+        -0.672645739910314
+      ]
+    },
+    {
+      "game": "Gumshoe",
+      "profile": "stock graphics, fixed TCP Zapper aim40,160 triggertrue",
+      "classification": "positive for this tested workload",
+      "baseline_ppu": "LLE",
+      "candidate_ppu": "HLE",
+      "package": "native-services-v3+new-packed-HLE+MMC1-stability; actual production baseline; SDL gameplay interval+expanded-native-ROM-seeds",
+      "frames": 1200,
+      "first_frame": 1801,
+      "end_frame": 3001,
+      "before_cpu_seconds": [
+        11.40625,
+        11.3125,
+        11.234375,
+        11.1875,
+        11.21875
+      ],
+      "after_cpu_seconds": [
+        9.9375,
+        9.9375,
+        9.734375,
+        9.703125,
+        9.859375
+      ],
+      "paired_reductions_percent": [
+        12.876712328767123,
+        12.154696132596685,
+        13.351877607788595,
+        13.268156424581006,
+        12.116991643454039
+      ],
+      "median_cpu_reduction_percent": 12.876712328767123,
+      "aa_before": [
+        0.5571030640668524,
+        0.0
+      ],
+      "aa_after": [
+        -1.6666666666666667,
+        0.0
+      ]
+    },
+    {
+      "game": "Super Mario Bros.",
+      "profile": "stock graphics",
+      "classification": "modest positive for this tested workload",
+      "baseline_ppu": "HLE",
+      "candidate_ppu": "HLE",
+      "package": "native-services-v3 over existing HLE; actual production baseline; SDL gameplay interval",
+      "frames": 1200,
+      "first_frame": 1801,
+      "end_frame": 3001,
+      "before_cpu_seconds": [
+        11.890625,
+        11.984375,
+        12.15625,
+        11.921875,
+        11.9375
+      ],
+      "after_cpu_seconds": [
+        11.65625,
+        11.65625,
+        11.6875,
+        11.734375,
+        11.59375
+      ],
+      "paired_reductions_percent": [
+        1.971090670170828,
+        2.7379400260756195,
+        3.8560411311053984,
+        1.5727391874180865,
+        2.8795811518324608
+      ],
+      "median_cpu_reduction_percent": 2.7379400260756195,
+      "aa_before": [
+        -1.0403120936280885,
+        0.6476683937823834
+      ],
+      "aa_after": [
+        -1.5706806282722514,
+        -0.1314060446780552
+      ]
+    },
+    {
+      "game": "Super Mario Bros. 3",
+      "profile": "stock graphics",
+      "classification": "neutral/inconclusive: small mixed pairs; no proven speedup or reproducible regression",
+      "baseline_ppu": "HLE",
+      "candidate_ppu": "HLE",
+      "package": "native-services-v3 over existing HLE; actual production baseline; SDL gameplay interval",
+      "frames": 1200,
+      "first_frame": 1801,
+      "end_frame": 3001,
+      "before_cpu_seconds": [
+        10.234375,
+        10.0625,
+        10.09375,
+        10.03125,
+        10.171875
+      ],
+      "after_cpu_seconds": [
+        9.921875,
+        9.890625,
+        9.921875,
+        9.921875,
+        10.1875
+      ],
+      "paired_reductions_percent": [
+        3.053435114503817,
+        1.7080745341614907,
+        1.7027863777089782,
+        1.0903426791277258,
+        -0.15360983102918588
+      ],
+      "median_cpu_reduction_percent": 1.7027863777089782,
+      "aa_before": [
+        -0.6211180124223602,
+        -0.15552099533437014
+      ],
+      "aa_after": [
+        0.3076923076923077,
+        0.15479876160990713
+      ]
+    }
+  ]
+}
