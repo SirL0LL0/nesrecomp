@@ -210,5 +210,6 @@
         0.15479876160990713
       ]
     }
-  ]
+  ],
+  "effective_observability": "Optional per-cycle trace inactive in timed SDL launches; normal production device event ring retained in both arms. Legacy stack/ring cache flags are not effective runtime controls; no disabling benefit is credited. No qualification observer in timed executables."
 }

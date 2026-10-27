@@ -22,7 +22,7 @@ mixed result as a proven win. No tested game has a reproducible regression.
 SMB1/SMB3 already used HLE on Windows x64: their references retain it. The
 supplementary explicit-LLE SMB1 result is not new production-default credit.
 
-Measurements use uninstrumented built games on SERVER, SDL software rendering
+Measurements use standard production game binaries without qualification observers on SERVER, SDL software rendering
 at 1280x720 and audio emulated, mixed and queued through dummy output. Five
 alternating 1200-frame pairs measure frames 1801-3000; TCP setup is excluded,
 normal shutdown included. Excluded full-3600-frame no-trace SDL observers match
@@ -51,7 +51,7 @@ captures are retained under the campaign evidence root
 | Frame conversion/reuse | Evaluated existing generation caching/once-per-frame conversion. No new content-comparison cache selected without demonstrated benefit. |
 | State/rollback | Reuse already integrated fused digest and inactive-HD savings from `0302a6f`; no duplicate credit or repeated negative allocation/lazy-scratch experiment. Current-build replay/rollback verified. |
 | Idle cartridge work | Selected MMC1 stability change. Always retain A12 pin transitions; rebuild maps only when CHR-register selection changes CPU-side C/D/E signals. Mode/read-gating/board tests and all8 affected title profiles pass. |
-| Production observability | Release trace/stack/rings/startup diagnostics disabled in comparisons. Qualification observers never execute inside timed game binaries. |
+| Production observability | Optional per-cycle tracing is inactive in timed launches; normal always-on device event history is retained in both arms. Legacy stack/ring cache keys are not runtime controls, so no disabling benefit is credited. Qualification observers never execute inside timed game binaries. |
 | Compiler optimization | Whole-program IPO rejected for actual SMB1 Fit pixel and guest-memory divergence. Native-C-only IPO passes5 functional profiles but lacks admitted runtime gain/supported production profile; excluded and deferred as `beads-2dw.1.106`. |
 
 The gains belong to each combined game package, not to individually attributed
@@ -85,3 +85,5 @@ The owner approved the presented batch in direct normal windows with normal
 audio, after requesting SMB1 and Metroid21:9. Preserve that approval; do not repeat
 routine visual handoffs. Main integration and fresh pinned title/CLI builds are
 authorized. No blog publication is authorized.
+
+Packaging audit clarification: the ordinary device event ring stays active in production. The legacy `NESRECOMP_ENABLE_POSTMORTEM_RINGS` / stack cache keys do not disable it. This corrects the earlier description, not the measured binaries or numerical results. Per-cycle trace enablement is host-controlled and is not restored by loading the traced setup state; timed launches leave it inactive. Fresh release generation with the new MSVC native compiler emits byte-identical C in all124 generated units across the five titles. Exact shipping executables pass720-frame old/new hardware, PCM, pixels and own-build replay comparisons.
