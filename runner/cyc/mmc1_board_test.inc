@@ -36,6 +36,11 @@ static void test_mmc1_boards(void)
         }
     mmc1_serial(0x8000,12); CHECK(hw_prg_is_stable());
     mmc1_serial(0xa000,16); prg_banks(62,63,62,63);
+    /* A12 has no mapping effect in 8 KiB CHR mode, but its last pin value
+     * must select CHR1 as soon as a CPU write enables 4 KiB mode. */
+    hw_cart_ppu_addr_watched(0); prg_banks(62,63,62,63);
+    hw_cart_ppu_addr_watched(4096); prg_banks(62,63,62,63);
+    mmc1_serial(0x8000,28); prg_banks(30,31,30,31);
     /* SNROM's second /CE is driven by the selected CHR register. */
     cart(1,256,8); hw_cart.info.prg_size=262144; hw_cart.info.prg_ram=8192;
     hw_cart.wram_len=8192; hw_cart_power_on();
@@ -44,6 +49,10 @@ static void test_mmc1_boards(void)
     hw_cart_ppu_addr_watched(4096); CHECK(hw_cart.wram_readable);
     mmc1_serial(0xe000,16); CHECK(!hw_cart.wram_readable);
     mmc1_serial(0xe000,0); CHECK(hw_cart.wram_readable);
+    mmc1_serial(0x8000,12); CHECK(!hw_cart.wram_readable);
+    hw_cart_ppu_addr_watched(0); CHECK(!hw_cart.wram_readable);
+    hw_cart_ppu_addr_watched(4096); CHECK(!hw_cart.wram_readable);
+    mmc1_serial(0x8000,28); CHECK(hw_cart.wram_readable);
     /* Test physical RAM chips/banks, including save-compatible ordering. */
     for (unsigned size=16384;size<=32768;size*=2) for (unsigned chr_kb=8;chr_kb<=64;chr_kb*=8) {
         if (size==32768 && chr_kb>8) continue;
@@ -57,6 +66,13 @@ static void test_mmc1_boards(void)
             hw_cart_cpu_write(0x6000,(uint8_t)(0x50+bank));
         }
         for (unsigned bank=0;bank<size/8192;++bank) CHECK(hw_cart.wram[bank*8192]==0x50+bank);
+        /* In 4 KiB mode A12 still selects SOROM/SXROM/SZROM RAM pins,
+         * even though the CHR windows keep their own register values. */
+        unsigned shift=chr_kb>8?4:size==32768?2:3;
+        unsigned last=size/8192-1;
+        mmc1_serial(0x8000,28); mmc1_serial(0xa000,0); mmc1_serial(0xc000,last<<shift);
+        hw_cart_ppu_addr_watched(0); CHECK(hw_cart.wram_bank==0);
+        hw_cart_ppu_addr_watched(4096); CHECK(hw_cart.wram_bank==last*8192);
         hw_cart_power_on();
         CHECK(hw_cart.wram[hw_cart.info.prg_ram]==(size==16384?0x51:0x50));
         if (hw_cart.info.prg_ram) CHECK(hw_cart.wram[0]==0);

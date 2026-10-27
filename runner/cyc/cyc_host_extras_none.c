@@ -4,7 +4,12 @@
  * a weak definition elsewhere. */
 #include "cyc_host_extras.h"
 
-#if defined(_MSC_VER)
+#if defined(CYC_HOST_EXTRAS_STRONG)
+/* Standalone hosts, or a project explicitly declaring no HOST_EXTRAS, have
+ * no overriding definition. MinGW's COFF linker does not reliably resolve
+ * an otherwise-unreferenced weak fallback from this object. */
+const CycHostExtras *cyc_host_extras(void) { return NULL; }
+#elif defined(_MSC_VER)
 const CycHostExtras *cyc_host_extras_none(void) { return NULL; }
 #if defined(_M_IX86)
 #pragma comment(linker, "/alternatename:_cyc_host_extras=_cyc_host_extras_none")

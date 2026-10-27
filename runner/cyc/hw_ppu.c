@@ -1251,7 +1251,12 @@ static void general_half_dot(void)
  * Register access invalidates dot_kind, so no delayed CPU write/read or data
  * port transaction is hidden by this classification. Edge dots retain the
  * existing adapter (scroll copies, odd skip, VBlank and sprite loading).
- * HLE caches this classification; LLE rechecks it at each dot/half-dot. */
+ * Cache this classification until a register access or the end of the span.
+ * No field tested here can leave its stable value inside the span without
+ * a register access: the remaining mutations are sprite evaluation, pixel
+ * output and fetch state, all performed by the span itself. CPU accesses
+ * invalidate dot_kind before and after running their delayed PPU work;
+ * power-on and state restore invalidate it as well. */
 static bool render_span_ready(void)
 {
     return ppu.scanline < 240 && ppu.dot >= 8 && ppu.dot < 253 &&
@@ -1346,27 +1351,20 @@ static void render_span_half_dot(void)
  * branch (hw_cart_ppu_addr). */
 void ppu_dot(void)
 {
-#if !NESRECOMP_PPU_HLE && !NESRECOMP_PPU_LLE_REFERENCE
-    if (dot_kind == DOT_GENERAL && render_span_ready()) {
-        render_span_dot();
-        hw_cart_ppu_addr(ppu.vbus);
-        return;
-    }
-#endif
     /* The refresh begins independently of $2001 and must invalidate a
      * blank-dot classification cached earlier in VBlank. */
     if (hw_pal() && ppu.scanline >= 264) dot_kind = DOT_UNKNOWN;
     if (dot_kind == DOT_UNKNOWN) dot_kind = is_blank() ? DOT_BLANK : DOT_GENERAL;
     if (dot_kind == DOT_BLANK) {
         blank_dot();
-#if NESRECOMP_PPU_HLE
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
     } else if (dot_kind == DOT_RENDER && ppu.dot < 253) {
         render_span_dot();
 #endif
     } else {
         general_dot();
         if (!rendering()) dot_kind = DOT_UNKNOWN;
-#if NESRECOMP_PPU_HLE
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
         else dot_kind = render_span_ready() ? DOT_RENDER : DOT_GENERAL;
 #endif
     }
@@ -1375,26 +1373,86 @@ void ppu_dot(void)
 
 void ppu_half_dot(void)
 {
-#if !NESRECOMP_PPU_HLE && !NESRECOMP_PPU_LLE_REFERENCE
-    if (dot_kind == DOT_GENERAL && render_span_ready()) {
-        render_span_half_dot();
-        return;
-    }
-#endif
     if (dot_kind == DOT_UNKNOWN) dot_kind = is_blank() ? DOT_BLANK : DOT_GENERAL;
     if (dot_kind == DOT_BLANK) {
         blank_half_dot();
-#if NESRECOMP_PPU_HLE
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
     } else if (dot_kind == DOT_RENDER) {
         render_span_half_dot();
 #endif
     } else {
         general_half_dot();
         if (!rendering()) dot_kind = DOT_UNKNOWN;
-#if NESRECOMP_PPU_HLE
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
         else if (render_span_ready()) dot_kind = DOT_RENDER;
 #endif
     }
+}
+
+/* Own a complete stable CPU-cycle tail rather than redispatching each dot.
+ * Tick 0 already ran in hw_machine; the CPU cannot touch a register during
+ * this tail. All three possible dot advances must remain inside the span.
+ * Cartridge address notifications and tick-4 /NMI and tick-7 /IRQ samples
+ * retain the same ordering as hw_machine's universal clock executor.
+ * PAL, partial cycles and scanline boundaries continue through that executor.
+ */
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
+static void render_clock_dot(void)
+{
+    render_span_dot();
+    hw_cart_ppu_addr(ppu.vbus);
+}
+#endif
+
+bool ppu_clock_cpu_tail(unsigned align)
+{
+#if NESRECOMP_PPU_HLE || !NESRECOMP_PPU_LLE_REFERENCE
+    if (dot_kind != DOT_RENDER || ppu.dot >= 250) return false;
+    switch (align) {
+    case 0:
+        render_span_half_dot(); /* tick 2 */
+        cpu_nmi_input(ppu_nmi_output()); /* 4, before the coincident dot */
+        render_clock_dot();
+        render_span_half_dot(); /* 6 */
+        apu_sample_irq();       /* 7 */
+        render_clock_dot();     /* 8 */
+        render_span_half_dot(); /* 10 */
+        break;
+    case 1:
+        render_span_half_dot(); /* 1 */
+        render_clock_dot();     /* 3 */
+        cpu_nmi_input(ppu_nmi_output()); /* 4 */
+        render_span_half_dot(); /* 5 */
+        apu_sample_irq();       /* 7, before the coincident dot */
+        render_clock_dot();
+        render_span_half_dot(); /* 9 */
+        render_clock_dot();     /* 11 */
+        break;
+    case 2:
+        render_clock_dot();     /* 2 */
+        cpu_nmi_input(ppu_nmi_output()); /* 4, before the half dot */
+        render_span_half_dot();
+        render_clock_dot();     /* 6 */
+        apu_sample_irq();       /* 7 */
+        render_span_half_dot(); /* 8 */
+        render_clock_dot();     /* 10 */
+        break;
+    default:
+        render_clock_dot();     /* 1 */
+        render_span_half_dot(); /* 3 */
+        cpu_nmi_input(ppu_nmi_output()); /* 4 */
+        render_clock_dot();     /* 5 */
+        apu_sample_irq();       /* 7, before the half dot */
+        render_span_half_dot();
+        render_clock_dot();     /* 9 */
+        render_span_half_dot(); /* 11 */
+        break;
+    }
+    return true;
+#else
+    (void)align;
+    return false;
+#endif
 }
 
 /* ---- registers ---- */

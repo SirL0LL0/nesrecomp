@@ -41,6 +41,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cyc.cmake)
 nesrecomp_cyc_add_oracle(cyc_oracle)
 
 add_executable(cyc_interp ${NESRECOMP_CYC_SOURCES} cyc_native_none.c)
+target_compile_definitions(cyc_interp PRIVATE CYC_HOST_EXTRAS_STRONG=1)
 target_include_directories(cyc_interp PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
 target_link_libraries(cyc_interp PRIVATE ${NESRECOMP_CYC_LIBRARIES})
 if(MSVC)
@@ -430,6 +431,29 @@ if(MSVC)
     target_compile_definitions(cyc_region_test PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 add_test(NAME cyc_region_test COMMAND cyc_region_test)
+
+# Compile PPU/APU services twice; the rest of the exact machine is shared.
+# General execution and per-cycle output remain independent reference paths.
+add_library(cyc_ppu_span_runtime OBJECT cpu6502.c cpu6502_interp.c hw_machine.c
+    ${CYC_TEST_BOARD_SOURCES} hw_palette.c cyc_trace.c cyc_ring.c
+    ${NESRECOMP_CYC_SCHEDULER_SOURCES} cyc_native_none.c)
+target_include_directories(cyc_ppu_span_runtime PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
+foreach(kind candidate reference)
+    add_executable(cyc_ppu_span_${kind} tests/ppu_span_probe.c hw_ppu.c hw_apu.c
+        $<TARGET_OBJECTS:cyc_ppu_span_runtime>)
+    target_include_directories(cyc_ppu_span_${kind} PRIVATE ${NESRECOMP_CYC_INCLUDE_DIRS})
+    target_link_libraries(cyc_ppu_span_${kind} PRIVATE ${NESRECOMP_CYC_LIBRARIES})
+    if(MSVC)
+        target_compile_definitions(cyc_ppu_span_${kind} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+endforeach()
+target_compile_definitions(cyc_ppu_span_reference PRIVATE NESRECOMP_PPU_LLE_REFERENCE=1 NESRECOMP_APU_LEVEL_REFERENCE=1)
+target_compile_definitions(cyc_ppu_span_candidate PRIVATE NESRECOMP_APU_VERIFY_LEVELS=1)
+add_test(NAME cyc_ppu_spans COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/cyc/test_ppu_spans.py
+    --reference $<TARGET_FILE:cyc_ppu_span_reference>
+    --candidate $<TARGET_FILE:cyc_ppu_span_candidate>)
+set_tests_properties(cyc_ppu_spans PROPERTIES TIMEOUT 180)
 
 add_executable(cyc_content_test content_test.c cpu6502.c cpu6502_interp.c hw_machine.c ${CYC_TEST_BOARD_SOURCES}
     hw_ppu.c hw_apu.c hw_palette.c cyc_trace.c cyc_ring.c ${NESRECOMP_CYC_SCHEDULER_SOURCES} cyc_native_none.c)

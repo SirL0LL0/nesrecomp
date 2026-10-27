@@ -131,6 +131,9 @@ function(nesrecomp_add_cycle_game target)
         ${CYC_PROJECT_DEPENDS} "${root}/tools/cyc/prepare_project.py")
     include("${cyc_dir}/cyc.cmake")
     add_executable(${target} ${NESRECOMP_CYC_SOURCES} ${CYC_PROJECT_SOURCES})
+    if(NOT CYC_HOST_EXTRAS)
+        target_compile_definitions(${target} PRIVATE CYC_HOST_EXTRAS_STRONG=1)
+    endif()
     if(MSVC)
         # A clean Windows machine need not have the VC redistributable.
         # Stage the compiler's redistributable DLLs, never System32 copies.

@@ -24,7 +24,13 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Build-only oracle for the native channel-output service. */
+#ifndef NESRECOMP_APU_LEVEL_REFERENCE
+#define NESRECOMP_APU_LEVEL_REFERENCE 0
+#endif
 
 enum { CH_PULSE1, CH_PULSE2, CH_TRIANGLE, CH_NOISE };
 
@@ -127,6 +133,10 @@ static struct {
     int16_t  ring[AUDIO_RING];
     uint32_t head, tail;
     float    pulse_mix[31], tnd_mix[203];
+    /* Derived host work, not machine state. State pointer access invalidates
+     * it before any serializer/snapshot may replace the channel state. */
+    double   base_level;
+    uint8_t  level_dirty, level_dmc;
 } audio;
 
 static int console_request = CYC_CONSOLE_DEFAULT;
@@ -181,6 +191,7 @@ static void audio_stage_setup(int sample_rate)
 
 void apu_audio_enable(bool on, int sample_rate)
 {
+    audio.level_dirty = 1;
     audio.on = on && sample_rate > 0;
     if (!audio.on) return;
     const double cpu_rate = cyc_cpu_hz();
@@ -264,6 +275,7 @@ static void clock_envelope(Envelope *e, uint8_t reg)
 
 static void audio_quarter_frame(void)
 {
+    audio.level_dirty = 1;
     clock_envelope(&apu.pulse[0].env, apu.reg[0]);
     clock_envelope(&apu.pulse[1].env, apu.reg[4]);
     clock_envelope(&apu.noise_env, apu.reg[12]);
@@ -274,6 +286,7 @@ static void audio_quarter_frame(void)
 
 static void audio_half_frame(void)
 {
+    audio.level_dirty = 1;
     for (int ch = 0; ch < 2; ch++) {
         Pulse *p = &apu.pulse[ch];
         uint8_t r = apu.reg[1 + 4 * ch];
@@ -314,6 +327,7 @@ void apu_debug_set_dmc_timer(uint16_t cycles) { apu.dmc_timer = cycles; }
 
 void apu_debug_set_noise(uint16_t lfsr, uint16_t timer)
 {
+    audio.level_dirty = 1;
     apu.noise_lfsr = lfsr;
     apu.noise_timer = timer;
 }
@@ -342,12 +356,14 @@ static void audio_cycle(void)
             if (p->timer == 0) {
                 p->timer = p->period;
                 p->step = (p->step + 1) & 7;
+                if (apu.len[ch].count && p->period >= 8) audio.level_dirty = 1;
             } else {
                 p->timer--;
             }
         }
     }
     if (apu.noise_timer == 0) {
+        if (apu.len[CH_NOISE].count) audio.level_dirty = 1;
         apu.noise_timer = (uint16_t)(apu.noise_period - 1);
         unsigned tap = (apu.reg[14] & 0x80) ? 6 : 1;
         unsigned fb = (apu.noise_lfsr ^ (apu.noise_lfsr >> tap)) & 1;
@@ -363,11 +379,36 @@ static void audio_cycle(void)
     }
     /* Periods 0 and 1 step at ultrasonic rates that the output stages filter
      * to a constant; hold the last level rather than alias it. */
-    if (apu.tri_period >= 2) apu.tri_out = (uint8_t)(apu.tri_step < 16 ? 15 - apu.tri_step : apu.tri_step - 16);
+    if (apu.tri_period >= 2) {
+        uint8_t next = (uint8_t)(apu.tri_step < 16 ? 15 - apu.tri_step : apu.tri_step - 16);
+        if (next != apu.tri_out) audio.level_dirty = 1;
+        apu.tri_out = next;
+    }
 
+#if NESRECOMP_APU_LEVEL_REFERENCE
     uint8_t out[5];
     apu_channel_levels(out);
     double level = audio.pulse_mix[out[0] + out[1]] + audio.tnd_mix[3 * out[2] + 2 * out[3] + out[4]];
+#else
+    if (audio.level_dirty || audio.level_dmc != apu.dmc_level) {
+        uint8_t out[5];
+        apu_channel_levels(out);
+        audio.base_level = audio.pulse_mix[out[0] + out[1]] + audio.tnd_mix[3 * out[2] + 2 * out[3] + out[4]];
+        audio.level_dirty = 0;
+        audio.level_dmc = apu.dmc_level;
+    }
+    double level = audio.base_level;
+#ifdef NESRECOMP_APU_VERIFY_LEVELS
+    uint8_t expected[5];
+    apu_channel_levels(expected);
+    double reference = audio.pulse_mix[expected[0] + expected[1]] +
+        audio.tnd_mix[3 * expected[2] + 2 * expected[3] + expected[4]];
+    if (level != reference) {
+        fprintf(stderr, "native APU level differs at cycle %llu\n", (unsigned long long)hw.cycles);
+        abort();
+    }
+#endif
+#endif
 
     level += hw_cart_audio_level();
     audio.acc += level;
@@ -401,6 +442,7 @@ static void length_write(int ch, uint8_t value)
 
 void apu_write(uint16_t addr, uint8_t value)
 {
+    audio.level_dirty = 1;
     if (addr <= 0x400F) apu.reg[addr & 15] = value;
     switch (addr) {
     case 0x4002:
@@ -536,6 +578,7 @@ void hw_set_controller(int port, uint8_t buttons)
 
 static void clock_length_counters(void)
 {
+    audio.level_dirty = 1;
     if (apu.half) {
         for (int ch = 0; ch < 4; ch++) {
             LengthCounter *l = &apu.len[ch];
@@ -817,12 +860,14 @@ void dma_end_of_cycle(void)
 
 void *apu_state_ptr(size_t *size)
 {
+    audio.level_dirty = 1;
     *size = sizeof(apu);
     return &apu;
 }
 
 void apu_power_on(void)
 {
+    audio.level_dirty = 1;
     memset(&apu, 0, sizeof(apu));
     apu.put = 1;
     apu.reset_delay = 0xFF;

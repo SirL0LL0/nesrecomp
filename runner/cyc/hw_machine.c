@@ -114,6 +114,10 @@ void hw_clock_run_ticks(int n)
  * case, when no register access has run part of the cycle. */
 static void run_ticks_1_to_11(void)
 {
+    if (ppu_clock_cpu_tail(hw.align)) {
+        if (hw_cart.clock_late) hw_cart_cpu_clock_late();
+        return;
+    }
     switch (hw.align) {
     case 0:
         ppu_half_dot();   /* 2 */

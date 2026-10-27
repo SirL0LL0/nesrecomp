@@ -1268,7 +1268,16 @@ void hw_cart_ppu_addr_watched(uint16_t vbus)
 {
     if (hw_cart.mapper==1 || hw_cart.mapper==155) {
         unsigned a12=(vbus>>12)&1;
-        if (hw_cart.m.a12!=a12) { hw_cart.m.a12=(uint8_t)a12; mmc1_apply(); }
+        if (hw_cart.m.a12!=a12) {
+            hw_cart.m.a12=(uint8_t)a12;
+            /* A12 selects a CHR register for SxROM's CPU-side C/D/E
+             * signals (bits 2..4). The CHR windows themselves always use
+             * their own registers. Keep the pin for later CPU writes,
+             * but rebuild tables only when a selected signal can change.
+             * In 8 KiB mode CHR0 supplies both phases. */
+            if ((hw_cart.m.ctrl & MMC1_CTRL_CHR_4K) &&
+                ((hw_cart.m.chr0 ^ hw_cart.m.chr1) & 0x1C)) mmc1_apply();
+        }
     } else if (hw_cart.mapper == 4 || hw_cart.mapper == 118 || hw_cart.mapper == 119 || hw_cart.mapper == 48) mmc3_ppu_addr(vbus);
     else if (hw_cart.mapper==64 || hw_cart.mapper==158) rambo_ppu_addr(vbus);
     else if (hw_cart.mapper==96) oeka_ppu_addr(vbus);

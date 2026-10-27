@@ -8,7 +8,6 @@
 #if NESRECOMP_PPU_HLE != 0 && NESRECOMP_PPU_HLE != 1
 #error "NESRECOMP_PPU_HLE must be 0 (LLE) or 1 (HLE)"
 #endif
-#if NESRECOMP_PPU_HLE && !defined(__SSE2__) && !defined(_M_X64) && (!defined(_M_IX86_FP) || _M_IX86_FP < 2)
-#error "The packed PPU HLE experiment requires an SSE2 build; select LLE on other hosts"
-#endif
+/* ppu_hle_kernel.h selects SSE2 only for the x86-64 ABI and supplies the
+ * same scalar interface elsewhere. HLE must not reject a portable host. */
 #endif

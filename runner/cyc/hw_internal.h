@@ -424,6 +424,10 @@ extern uint32_t hw_frame_argb[256 * 240];
 void    ppu_power_on(void);
 void    ppu_dot(void);
 void    ppu_half_dot(void);
+/* Execute ticks 1..11 of an NTSC CPU cycle when a stable render span owns
+ * all its PPU events, including the original NMI/IRQ sample positions.
+ * False leaves the machine untouched for the general master-clock path. */
+bool    ppu_clock_cpu_tail(unsigned align);
 uint8_t ppu_read(uint16_t addr);
 void    ppu_write(uint16_t addr, uint8_t value);
 /* /NMI as the PPU drives it (active high here). */
