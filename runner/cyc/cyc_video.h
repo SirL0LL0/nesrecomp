@@ -43,6 +43,9 @@ int  cyc_video_native_x0(void);
 /* Host side. */
 void cyc_video_window_ready(void);                   /* from now on requests queue */
 void cyc_video_window_resized(int drawable_w, int drawable_h);
+/* Last host drawable size, also available while a menu owns input events.
+ * Zero dimensions mean no window or headless drawable has been supplied. */
+void cyc_video_drawable_size(int *drawable_w, int *drawable_h);
 /* Apply a queued request: true when the width changed (the host re-creates
  * its texture). */
 bool cyc_video_apply_pending(void);

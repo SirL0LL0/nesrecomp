@@ -57,6 +57,12 @@ void cyc_video_window_resized(int drawable_w, int drawable_h)
     if (s_mode == NES_VIDEO_FIT) request(nes_video_geometry_width_for(s_mode, drawable_w, drawable_h));
 }
 
+void cyc_video_drawable_size(int *drawable_w, int *drawable_h)
+{
+    if (drawable_w) *drawable_w = s_draw_w;
+    if (drawable_h) *drawable_h = s_draw_h;
+}
+
 bool cyc_video_apply_pending(void)
 {
     if (!s_pending) return false;
