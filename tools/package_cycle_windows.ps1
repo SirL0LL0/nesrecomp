@@ -99,5 +99,9 @@ $GameNotes
     $absolute = [IO.Path]::GetFullPath($stage)
     $prefix = [IO.Path]::GetFullPath($out).TrimEnd('\')+'\'
     if (-not $absolute.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe staging cleanup path.' }
-    Remove-Item -LiteralPath $absolute -Recurse -Force
+    $items = @(Get-Item -LiteralPath $absolute) + @(Get-ChildItem -LiteralPath $absolute -Recurse)
+    if ($items | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $_.Name -eq '.git' }) {
+        throw 'Refusing staging cleanup with a reparse point or nested repository.'
+    }
+    Remove-Item -LiteralPath $absolute -Recurse -ErrorAction Stop
 }
