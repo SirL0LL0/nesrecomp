@@ -1,24 +1,33 @@
 # Performance work
 
 Current cycle-backend evidence is recorded in
-[the October 22 investigation](validation/2026-10-22-cycle-performance.md).
+[the October 27 delivery](validation/2026-10-27-native-opportunities.md), with
+[remaining architectural opportunities](validation/2026-10-27-remaining-opportunities.md)
+and [the earlier October 22 investigation](validation/2026-10-22-cycle-performance.md).
 `tools/cyc/bench_host_work.py` measures existing cycle executables with serial
 A/A and ABBA process-CPU controls. The `--benchmark` flags and historical
 results below describe the legacy function/frame runner.
 
-This document is the burn-down and evidence contract for portable runner
-performance work. The immediate target is the original Xbox port, but retained
-changes must also improve normal desktop production builds without weakening
-the emulated machine.
+This document defines the evidence contract for runner performance work.
+Choose a complete measured job and evaluate replacement, reuse and ownership
+consolidation before accumulating local fixes. Existing internal subsystem
+boundaries are changeable; console-visible behavior remains the contract.
+Historical results below retain their original platform and workload scope.
 
 ## Measurement contract
 
-- Build `Release` from a fresh CMake tree, or explicitly configure existing
+- Build `Release` from a fresh CMake tree. For the legacy host, explicitly configure existing
   trees with `NESRECOMP_ENABLE_TRACE=OFF`,
   `NESRECOMP_ENABLE_STACK_TRACKING=OFF`, and
   `NESRECOMP_ENABLE_POSTMORTEM_RINGS=OFF`. These options remain independently
-  overrideable for diagnostic builds.
-- Use the fully rendered headless path:
+  overrideable for diagnostic builds. These legacy stack/ring keys do not
+  disable the cycle host's ordinary device history. Optional cycle tracing is
+  host-controlled; verify its actual state and do not attribute gains to an
+  ignored cache option.
+- Measure the actual built-game workload and enabled features. Use SDL/audio
+  and custom/HD presentation when that is the path being optimized; a menu,
+  boot-only count or headless core run cannot establish their gameplay cost.
+  The fully rendered legacy headless path remains useful for its own scope:
 
   ```text
   GameRecomp.exe "<rom>" --benchmark 1200 --benchmark-warmup 300 \
@@ -34,12 +43,18 @@ the emulated machine.
   It reports guest-between-callback, NMI, PPU, sprite-prediction, post-render,
   and residual callback time. Normal benchmark runs execute no phase-counter
   calls.
-- Reject a local optimization that does not produce a repeatable material
-  result. The default retention gate is at least a 3% median improvement with
-  no adverse lower-envelope signal. A smaller result needs an independently
-  useful code-size or memory reduction and must not add maintenance complexity.
+- Apply the owner's per-game rule: neutral and positive results are acceptable;
+  every game need not improve. There is no minimum percentage gain. A
+  reproducible slowdown in one game cannot be offset by gains in others.
+  Treat small mixed samples within variation as neutral/inconclusive, not
+  proven wins. Identical original/candidate defects are tracked separately.
 - Profilers, counters, and diagnostic builds select candidates; they are not
   timing evidence.
+- Reuse existing routes and receipts, take the smallest attribution that
+  selects one coherent implementation, then integrate and measure it. Expand
+  validation for concrete risk or failures; do not automatically build a
+  matrix for each hypothesis. After two failed improvement experiments,
+  reassess the architecture before further tuning.
 
 ## Gameplay stutter diagnostics
 
@@ -61,8 +76,9 @@ hitches in the same 20-second route with telemetry disabled and saving enabled.
 
 Every retained change must pass the gates relevant to the subsystem:
 
-1. The benchmark's final framebuffer CRC matches the untouched binary and
-   `dispatch_miss_count` remains zero.
+1. Required guest/pixel/device results match the reference at meaningful
+   checkpoints. Baseline interpreter fallback or identical shared defects do
+   not disqualify a candidate; introduced correctness failures must be fixed.
 2. A smoke run matches at multiple frame checkpoints.
 3. The recompiler/runtime test suite passes.
 4. APU changes additionally preserve captured PCM byte-for-byte.
@@ -70,7 +86,10 @@ Every retained change must pass the gates relevant to the subsystem:
    and input-script behavior.
 
 The faithful implementation remains available whenever an optimization relies
-on a runtime policy or a title/content assumption.
+on a runtime policy or a title/content assumption. It need not execute inside
+the native replacement. Private representation, callback counts and old
+save-state layouts are not acceptance contracts. Current-build save/load,
+rewind and rollback still work; persistent native saves remain protected.
 
 ## Transferable lessons from ndsrecomp
 

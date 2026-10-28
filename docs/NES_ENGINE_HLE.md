@@ -50,8 +50,10 @@ interpreter runs match all 3,200 per-frame diagnostic records on that route.
 
 Configure `NESRECOMP_PPU_IMPL=LLE` (default) or `HLE` in distinct build trees.
 `runner/cyc/ppu_implementation.cmake` resolves the definition for all consumers.
-Standalone builds default to LLE; `NESRECOMP_PPU_HLE=1` selects the experiment
-and requires SSE2. Unsupported architectures fail the HLE build explicitly.
+Standalone builds default to LLE; `NESRECOMP_PPU_HLE=1` selects the HLE kernels.
+The current helper uses SSE2 on its qualified x86-64 path and retains a scalar
+implementation elsewhere. The earlier SSE2-only build restriction was removed
+and Win32 IA32 scalar behavior was qualified in the October 27 package.
 `cyc_ppu_implementation()` and host startup output identify the fixed choice.
 There is no runtime selector, dual execution or live state handoff.
 
@@ -60,7 +62,7 @@ cycle PPU, not a whole-machine timing shortcut. At a fetched background row,
 HLE decodes eight two-bit pixels once into packed private state. It replaces
 four scalar background/attribute shift planes and repeated per-pixel plane
 extraction. All eight sprite output units are selected and advanced together
-with SSE2, retaining countdown-before-shift, transparency and earlier-object
+with the packed helper (SSE2 or scalar), retaining countdown-before-shift, transparency and earlier-object
 priority. The immutable row decode table is 512 bytes and keys on fetched
 bytes, so changed CHR banks/RAM need no cache invalidation.
 

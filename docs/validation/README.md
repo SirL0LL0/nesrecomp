@@ -1,4 +1,10 @@
-# Historical validation
+# Validation records
+
+The current [remaining native performance burndown](2026-10-27-remaining-opportunities.md)
+and [machine-readable register](2026-10-27-remaining-opportunities.json) distinguish
+open architectural opportunities from the [completed October 27 delivery](2026-10-27-native-opportunities.md).
+
+## Historical validation
 
 These records preserve earlier findings and measurements. Their status claims,
 local paths and reproduction recipes describe the recorded checkpoint, rather

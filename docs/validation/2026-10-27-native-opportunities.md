@@ -1,6 +1,9 @@
 # NES native runtime opportunity burndown
 
 Tracking: `beads-2dw.1.101`, related to optimization campaign `beads-2wy8.1`.
+This records the completed delivery scope. It does not establish architectural
+exhaustion; [the follow-up burndown](2026-10-27-remaining-opportunities.md)
+keeps thirty-one remaining pipeline/service opportunities open or explicitly parked.
 Isolated branch: `perf/native-runtime-20261027`.
 Baseline engine: `b795ada2127fa3a4ad212f5d8dd494db3339032d`.
 Measured runtime implementation: `67691b9d6bc6f72a82184278688ffbe4917dd6c1`.
