@@ -1000,7 +1000,7 @@ static int host_main(int argc, char **argv) {
     long barcode_frame=0; unsigned barcode_speed=1000;
     long mem_frame = -1, shot_every = 0;
 #ifndef CYC_ORACLE
-    const char *miss_log = NULL, *capture_log = NULL, *view_list = NULL;
+    const char *miss_log = NULL, *capture_log = NULL, *view_list = NULL, *play_miss_log = NULL;
 #endif
     int align = 0, scale = 0;          /* 0: the window scale in config.ini */
     CycConsole console = CYC_CONSOLE_DEFAULT;
@@ -1180,6 +1180,8 @@ static int host_main(int argc, char **argv) {
 #endif
         }
         else if (!strcmp(argv[i], "--miss-log") && i + 1 < argc) miss_log = argv[++i], headless = true;
+        /* the same log from a played session in the window (written when the window closes) */
+        else if (!strcmp(argv[i], "--play-miss-log") && i + 1 < argc) play_miss_log = argv[++i];
         else if (!strcmp(argv[i], "--capture-log") && i + 1 < argc) capture_log = argv[++i], headless = true;
         else if (!strcmp(argv[i], "--ram-view-list") && i + 1 < argc) view_list = argv[++i], headless = true;
 #endif
@@ -1521,8 +1523,14 @@ session_restart:
         }
         cyc_sdl_present_out(present_out, present_every);
         cyc_sdl_image_path(rom_path);
+        if (play_miss_log) {
+            cyc_run_miss = (uint32_t *)calloc(cyc_run_miss_slots(), sizeof(uint32_t));
+            cyc_run_ram_miss = (uint32_t *)calloc(0x10000, sizeof(uint32_t));
+            cyc_run_ram_opcodes = (uint8_t *)calloc((size_t)0x10000 * 32, 1);
+        }
         int result=cyc_sdl_main(cyc_native_display_name ? cyc_native_display_name
                                 : cyc_native_program_name ? cyc_native_program_name : rom_path, scale);
+        if (play_miss_log && cyc_run_miss) write_miss_log(play_miss_log);
         bool disk_ok=fds_save_flush(CYC_FDS_SAVE_EXIT);
         bool saves_ok=save_write(save_file,0)&&save_write(datach_save,1)&&disk_ok;
 #ifdef NESRECOMP_NET

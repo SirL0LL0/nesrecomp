@@ -191,7 +191,7 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
     static RecompLauncherCSettings io, defaults;
     static RecompLauncherCGameInfo gi;
     static char out_rom[1024], name[256];
-    static uint8_t sha[1][32];
+    static uint8_t sha[2][32];
     static const char *const FDS_PATTERNS[] = { "*.fds", "*.qd" };
     static const char *shortcut_labels[CYC_SC_COUNT];
     static int default_key[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS], default_pad[RECOMP_LAUNCHER_MAX_ASSIST_BINDINGS];
@@ -302,23 +302,32 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
         gi.host_persists_paths = 1;
     }
 #if defined(CYC_LAUNCHER_STOCK_SHA256) || defined(CYC_LAUNCHER_ROM_SHA256)
-    /* The image the player selects, hashed the way the launcher hashes (after
-     * an iNES header; FDS images whole): the image this program was compiled
-     * from, or - for a project that ships a patch (below) - the stock image
-     * the patch applies to. */
+    /* The images the player may select, hashed the way the launcher hashes
+     * (after an iNES header; FDS images whole): the image this program was
+     * compiled from and - for a project that ships a patch (below) - the stock
+     * image the patch applies to. recomp-ui uses an already patched image as
+     * it is (its SHA-1 is the patch's required result). */
     {
+        const char *hexes[2];
+        int n = 0;
 #ifdef CYC_LAUNCHER_STOCK_SHA256
-        const char *hex = CYC_LAUNCHER_STOCK_SHA256;
-#else
-        const char *hex = CYC_LAUNCHER_ROM_SHA256;
+        hexes[n++] = CYC_LAUNCHER_STOCK_SHA256;
 #endif
-        bool ok = strlen(hex) == 64;
-        for (int i = 0; ok && i < 32; ++i) {
-            int hi = hex_nibble(hex[2 * i]), lo = hex_nibble(hex[2 * i + 1]);
-            ok = hi >= 0 && lo >= 0;
-            sha[0][i] = (uint8_t)(hi * 16 + lo);
+#ifdef CYC_LAUNCHER_ROM_SHA256
+        hexes[n++] = CYC_LAUNCHER_ROM_SHA256;
+#endif
+        int good = 0;
+        for (int k = 0; k < n; ++k) {
+            const char *hex = hexes[k];
+            bool ok = strlen(hex) == 64;
+            for (int i = 0; ok && i < 32; ++i) {
+                int hi = hex_nibble(hex[2 * i]), lo = hex_nibble(hex[2 * i + 1]);
+                ok = hi >= 0 && lo >= 0;
+                sha[good][i] = (uint8_t)(hi * 16 + lo);
+            }
+            if (ok) good++;
         }
-        if (ok) { gi.known_sha256 = (const uint8_t (*)[32])sha; gi.num_known_sha256 = 1; }
+        if (good) { gi.known_sha256 = (const uint8_t (*)[32])sha; gi.num_known_sha256 = (size_t)good; }
     }
 #endif
 #ifdef CYC_LAUNCHER_ROM_PATCH
