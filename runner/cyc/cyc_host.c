@@ -1389,6 +1389,17 @@ session_restart:
         return 2;
     }
     if (cyc_native_program_name && cyc_prg_hash() != cyc_native_prg_hash) {
+#ifdef CYC_INTERP_ON_ROM_MISMATCH
+        /* Opt-in (projects whose ROM changes between builds, e.g. a translation edited and rebuilt without
+         * recompiling): same cartridge metadata, different program data. The native code was generated from one
+         * exact PRG image and must not run, but the cycle-accurate interpreter can run any of them. */
+        fprintf(stderr, "PRG ROM does not match the ROM '%s' was recompiled from (hash %08X, expected %08X): "
+                        "running on the interpreter only\n",
+                cyc_native_program_name, cyc_prg_hash(), cyc_native_prg_hash);
+        cyc_run_native = false;   /* (F2 of the developer build can still turn it back on) */
+    }
+    if (0) {
+#endif
         cyc_diagnostics_error("PRG ROM does not match the ROM '%s' was recompiled from (hash %08X, expected %08X)\n",
                 cyc_native_program_name, cyc_prg_hash(), cyc_native_prg_hash);
 #if defined(CYC_WITH_SDL)
