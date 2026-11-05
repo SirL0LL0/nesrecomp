@@ -2079,9 +2079,21 @@ bool install_archive(Runtime& runtime, const fs::path& archive,
  * after its 16-byte iNES header, or of a Famicom Disk System image's side
  * data (after a 16-byte fwNES "FDS\x1A" header, or the whole of a headerless
  * image, whose first side begins with the disk info block), so equivalent
- * header variants identify the same dump. */
+ * header variants identify the same dump. A game may replace this identity
+ * with nes_mod_set_rom_identity (below). */
+static NESModRomIdentityFn s_rom_identity_fn = nullptr;
+
 bool crc32_file(const fs::path& path, std::string& out,
                 std::string* error) {
+    if (s_rom_identity_fn) {
+        char digest[9] = {0};
+        if (!s_rom_identity_fn(path.string().c_str(), digest)) {
+            set_error(error, "selected image is not a recognized ROM");
+            return false;
+        }
+        out = digest;
+        return true;
+    }
     std::vector<uint8_t> bytes;
     if (!read_file(path, bytes, error)) return false;
     size_t skip = 0;
@@ -2803,6 +2815,10 @@ const RecompLauncherCModProvider* mod_runtime_launcher_provider() {
 #endif
 
 }  // namespace NESRecomp
+
+extern "C" void nes_mod_set_rom_identity(NESModRomIdentityFn fn) {
+    NESRecomp::s_rom_identity_fn = fn;
+}
 
 extern "C" void nes_mod_set_local_only(const char* name, int required) {
     if (!name || !*name) return;
