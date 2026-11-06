@@ -25,13 +25,6 @@ void cyc_ui_net_returned(const char *why){s_net_returned=1;snprintf(s_net_error,
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef CYC_LAUNCHER_ROM_PATCH
-#ifdef _WIN32
-#include <direct.h>
-#else
-#include <sys/stat.h>
-#endif
-#endif
 
 #ifndef CYC_GAME_PLAYERS
 #define CYC_GAME_PLAYERS CYC_INPUT_PLAYERS
@@ -304,9 +297,9 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
 #if defined(CYC_LAUNCHER_STOCK_SHA256) || defined(CYC_LAUNCHER_ROM_SHA256)
     /* The images the player may select, hashed the way the launcher hashes
      * (after an iNES header; FDS images whole): the image this program was
-     * compiled from and - for a project that ships a patch (below) - the stock
-     * image the patch applies to. recomp-ui uses an already patched image as
-     * it is (its SHA-1 is the patch's required result). */
+     * compiled from and - for a program with a built-in patch
+     * (CYC_EMBEDDED_ROM_PATCH, cyc_host.c) - the stock image the host patches
+     * in memory when it loads it. */
     {
         const char *hexes[2];
         int n = 0;
@@ -330,43 +323,7 @@ int cyc_ui_launcher(CycSettings *settings, const char *settings_path, const CycH
         if (good) { gi.known_sha256 = (const uint8_t (*)[32])sha; gi.num_known_sha256 = (size_t)good; }
     }
 #endif
-#ifdef CYC_LAUNCHER_ROM_PATCH
-    /* A project whose program is compiled from a patched image (a translation)
-     * ships the patch beside the executable: the player selects the stock image
-     * (CYC_LAUNCHER_STOCK_SHA256), recomp-ui applies the patch into a cache and
-     * Play starts the result, which must be the compiled image
-     * (CYC_LAUNCHER_ROM_PATCH_SHA1, SHA-1 of the whole patched file), so it
-     * runs on the recompiled code. Without the file the launcher has no patch. */
-    {
-        static char patch_path[1100], cache_dir[1100];
-        char *base = SDL_GetBasePath();
-        patch_path[0] = cache_dir[0] = 0;
-        if (base) {
-            snprintf(patch_path, sizeof(patch_path), "%s%s", base, CYC_LAUNCHER_ROM_PATCH);
-            snprintf(cache_dir, sizeof(cache_dir), "%spatched", base);
-            SDL_free(base);
-        }
-        FILE *pf = patch_path[0] ? fopen(patch_path, "rb") : NULL;
-        if (pf) {
-            fclose(pf);
-#ifdef _WIN32
-            _mkdir(cache_dir);
-#else
-            mkdir(cache_dir, 0755);
-#endif
-            gi.rom_patch_supported = 1;
-            gi.rom_patch_cache_dir = cache_dir;
-#ifdef CYC_LAUNCHER_ROM_PATCH_SHA1
-            gi.rom_patch_required_sha1 = CYC_LAUNCHER_ROM_PATCH_SHA1;
-#endif
-#ifdef CYC_LAUNCHER_ROM_PATCH_NOTE
-            gi.rom_patch_note = CYC_LAUNCHER_ROM_PATCH_NOTE;
-#endif
-            snprintf(io.rom_patch_path, sizeof(io.rom_patch_path), "%s", patch_path);
-            io.rom_patch_enabled = 1;
-        }
-    }
-#endif
+
     char title[300];
     snprintf(title, sizeof(title), "%s - Launcher", name);
 #ifdef RECOMP_LAUNCHER_HAS_PRESERVE_SDL

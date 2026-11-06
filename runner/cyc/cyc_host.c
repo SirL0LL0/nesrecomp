@@ -229,6 +229,75 @@ static uint8_t *read_file(const char *path, size_t *size) {
 }
 
 #ifndef CYC_ORACLE
+#ifdef CYC_EMBEDDED_ROM_PATCH
+/* A program compiled from a patched image (a translation) can carry its patch:
+ * the game project links cyc_rom_patch_ips (an IPS) and defines
+ * CYC_EMBEDDED_PATCH_STOCK_CRC32 (CRC32 of the stock image after its 16-byte
+ * iNES header) and CYC_EMBEDDED_PATCH_RESULT_CRC32 (CRC32 of the whole compiled
+ * image). When the player's file is the stock image, the patch is applied in
+ * memory and the result, checked, is what runs: the compiled program. Any other
+ * file is left as it is. Nothing is written to disk. */
+extern const unsigned char cyc_rom_patch_ips[];
+extern const size_t cyc_rom_patch_ips_size;
+
+static uint32_t ep_crc32(const uint8_t *p, size_t n)
+{
+    uint32_t c = 0xFFFFFFFFu;
+    for (size_t i = 0; i < n; ++i) {
+        c ^= p[i];
+        for (int k = 0; k < 8; ++k) c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    }
+    return ~c;
+}
+
+static uint8_t *embedded_rom_patch(uint8_t *image, size_t *size)
+{
+    if (!image || *size <= 16 || memcmp(image, "NES\x1a", 4)) return image;
+    if (ep_crc32(image + 16, *size - 16) != (uint32_t)(CYC_EMBEDDED_PATCH_STOCK_CRC32)) return image;
+    const uint8_t *p = cyc_rom_patch_ips;
+    size_t n = cyc_rom_patch_ips_size, len = *size, i = 5;
+    uint8_t *out = (uint8_t *)malloc(len);
+    if (!out || n < 8 || memcmp(p, "PATCH", 5)) goto fail;
+    memcpy(out, image, len);
+    while (i + 3 <= n && memcmp(p + i, "EOF", 3)) {
+        if (i + 5 > n) goto fail;
+        size_t off = (size_t)p[i] << 16 | (size_t)p[i + 1] << 8 | p[i + 2];
+        size_t sz = (size_t)p[i + 3] << 8 | p[i + 4];
+        const uint8_t *src = NULL;
+        uint8_t fill = 0;
+        i += 5;
+        if (sz == 0) {                          /* RLE record */
+            if (i + 3 > n) goto fail;
+            sz = (size_t)p[i] << 8 | p[i + 1];
+            fill = p[i + 2];
+            i += 3;
+        } else {
+            if (i + sz > n) goto fail;
+            src = p + i;
+            i += sz;
+        }
+        if (off + sz > len) {
+            uint8_t *grown = (uint8_t *)realloc(out, off + sz);
+            if (!grown) goto fail;
+            out = grown;
+            memset(out + len, 0, off + sz - len);
+            len = off + sz;
+        }
+        if (src) memcpy(out + off, src, sz);
+        else memset(out + off, fill, sz);
+    }
+    if (ep_crc32(out, len) != (uint32_t)(CYC_EMBEDDED_PATCH_RESULT_CRC32)) goto fail;
+    fprintf(stderr, "stock image: built-in patch applied in memory\n");
+    free(image);
+    *size = len;
+    return out;
+fail:
+    free(out);
+    fprintf(stderr, "stock image: the built-in patch could not be applied (left as it is)\n");
+    return image;
+}
+#endif
+
 static void write_miss_log(const char *path) {
     /* Merge with an existing log so runs accumulate; the recompiler reads the
      * first column (game.toml [game] cycle_seed_file). */
@@ -1256,6 +1325,9 @@ session_restart:
     cyc_diagnostics_note("reading selected ROM");
 #endif
     uint8_t *image = read_file(rom_path, &size);
+#ifdef CYC_EMBEDDED_ROM_PATCH
+    image = embedded_rom_patch(image, &size);
+#endif
     NesCartInfo cart_info;
     NesFdsImage fds_image;
     const char *ext = strrchr(rom_path, '.');
