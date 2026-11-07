@@ -1252,7 +1252,11 @@ the executable for port 4370): JSON over newline as in [debug protocol](../../do
 `read_ram`, `ring_dump`, `save_state` / `load_state` (path), `video` (the
 presented width and mode, optionally setting the mode), `window_size` (w, h:
 Fit follows the new drawable), `mod_stats` (hook sites, isolated calls,
-compositor counts), `quit`, and the game's own (`tcp_setup`). With `--hidden` and `SDL_VIDEODRIVER=dummy`
+compositor counts), `coverage` (CPU cycles native / interpreted from ROM,
+RAM, PRG RAM and elsewhere; with `--play-miss-log`, `new_rom` = distinct ROM
+instruction starts met on the interpreter for the first time this run and
+`recent` = the latest of them as `BB:AAAA`, newest first: a tool polls it to
+show whether a played session still finds code to seed), `quit`, and the game's own (`tcp_setup`). With `--hidden` and `SDL_VIDEODRIVER=dummy`
 nothing reaches a desktop; `tools/cyc/test_cyc_window.py` (CTest
 `cyc_window_run`) drives production and dev windows that way.
 

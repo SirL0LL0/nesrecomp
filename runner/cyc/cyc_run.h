@@ -27,6 +27,13 @@ extern uint64_t cyc_run_native_cycles;  /* CPU cycles performed by recompiled co
  * recompiler compiles. Indexed cyc_run_miss_index(); the host allocates
  * cyc_run_miss_slots() entries and writes them out as `4k:BB:AAAA` seeds. */
 extern uint32_t *cyc_run_miss;
+/* With cyc_run_miss: how many distinct ROM instruction starts ran interpreted
+ * for the first time in this run, and the latest of them (miss indices, a
+ * ring of CYC_RUN_MISS_RECENT: slot cyc_run_miss_new % N is written next).
+ * A window session reads them live (the "coverage" TCP command). */
+#define CYC_RUN_MISS_RECENT 16
+extern unsigned cyc_run_miss_new;
+extern unsigned cyc_run_miss_recent[CYC_RUN_MISS_RECENT];
 /* Optional [0x10000]: instruction starts in RAM (always interpreted): CPU RAM
  * $0000-$1FFF, and cartridge RAM from $6000 (the FDS PRG RAM). */
 extern uint32_t *cyc_run_ram_miss;

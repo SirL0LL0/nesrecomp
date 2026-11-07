@@ -958,6 +958,34 @@ static void tcp_mod_stats(int id, const char *line)
     cyc_tcp_ok(id, f);
 }
 
+/* Coverage while playing: where the CPU cycles went (recompiled code or the
+ * interpreter, split as cyc_run.h does) and, with --play-miss-log, the ROM
+ * instruction starts this run met on the interpreter for the first time, the
+ * latest first. A tool polls it to show whether a session still finds code. */
+static void tcp_coverage(int id, const char *line)
+{
+    (void)line;
+    char f[1200];
+    int at = snprintf(f, sizeof(f),
+                      "\"frame\":%ld,\"native\":%s,\"native_cycles\":%llu,\"interp_rom_cycles\":%llu,"
+                      "\"interp_ram_cycles\":%llu,\"interp_prg_ram_cycles\":%llu,\"interp_other_cycles\":%llu,"
+                      "\"logging\":%s,\"new_rom\":%u,\"recent\":[",
+                      s_frames_done, cyc_run_native ? "true" : "false",
+                      (unsigned long long)cyc_run_native_cycles, (unsigned long long)cyc_run_interp_rom_cycles,
+                      (unsigned long long)cyc_run_interp_ram_cycles, (unsigned long long)cyc_run_interp_prg_ram_cycles,
+                      (unsigned long long)cyc_run_interp_other_cycles, cyc_run_miss ? "true" : "false",
+                      cyc_run_miss_new);
+    unsigned n = cyc_run_miss_new < CYC_RUN_MISS_RECENT ? cyc_run_miss_new : CYC_RUN_MISS_RECENT;
+    for (unsigned k = 0; k < n && at < (int)sizeof(f) - 32; ++k) {
+        unsigned index = cyc_run_miss_recent[(cyc_run_miss_new - 1 - k) % CYC_RUN_MISS_RECENT], bank;
+        uint16_t addr;
+        cyc_run_miss_decode(index, &bank, &addr);
+        at += snprintf(f + at, sizeof(f) - (size_t)at, "%s\"%02X:%04X\"", k ? "," : "", bank, addr);
+    }
+    snprintf(f + at, sizeof(f) - (size_t)at, "]");
+    cyc_tcp_ok(id, f);
+}
+
 static void tcp_quit(int id, const char *line)
 {
     (void)line;
@@ -1076,6 +1104,7 @@ static void tcp_setup(void)
     cyc_tcp_register("video", "the presented width: mode stock|16:9|21:9|32:9|fit (optional)", tcp_video);
     cyc_tcp_register("window_size", "resize the window (Fit follows its drawable): w, h", tcp_window_size);
     cyc_tcp_register("mod_stats", "hook sites, isolated calls, compositor counts", tcp_mod_stats);
+    cyc_tcp_register("coverage", "native/interpreted cycles; new ROM code met this run (--play-miss-log)", tcp_coverage);
     cyc_tcp_register("quit", "close the window (the disk save is written first)", tcp_quit);
     if (s_extras && s_extras->tcp_setup) s_extras->tcp_setup(s_extras->ctx);
     if (cyc_tcp_start(port)) printf("[cyc tcp] listening on 127.0.0.1:%d\n", port);

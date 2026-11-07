@@ -13,6 +13,8 @@
 bool      cyc_run_native = true;
 uint64_t  cyc_run_native_cycles;
 uint32_t *cyc_run_miss;
+unsigned  cyc_run_miss_new;
+unsigned  cyc_run_miss_recent[CYC_RUN_MISS_RECENT];
 uint32_t *cyc_run_ram_miss;
 uint8_t  *cyc_run_ram_opcodes;
 uint64_t  cyc_run_interp_rom_cycles;
@@ -114,8 +116,12 @@ static void dispatch(void) {
             uint16_t pc = cpu.pc;
             uint64_t before = cyc_cycle_count();
             bool ram = pc < 0x2000 || is_prg_ram(pc);
-            if (cyc_run_miss && hw_prg_is_rom(pc)) cyc_run_miss[cyc_run_miss_index(pc)]++;
-            else if (cyc_run_ram_miss && ram) {
+            if (cyc_run_miss && hw_prg_is_rom(pc)) {
+                unsigned index = cyc_run_miss_index(pc);
+                if (!cyc_run_miss[index])
+                    cyc_run_miss_recent[cyc_run_miss_new++ % CYC_RUN_MISS_RECENT] = index;
+                cyc_run_miss[index]++;
+            } else if (cyc_run_ram_miss && ram) {
                 cyc_run_ram_miss[pc]++;
                 uint8_t op;
                 if (cyc_run_ram_opcodes && cyc_debug_peek(pc, &op))
